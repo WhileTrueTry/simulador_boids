@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<title>Simulador de boids 3D (v2.2) — bandada emergente en tres dimensiones (Reynolds, Ballerini, Couzin, Vicsek, Hildenbrandt, Bialek, Storms)</title>
+<title>Simulador de boids 3D (Bandada emergente)</title>
 <style>
 :root {
   color-scheme: dark;
@@ -269,8 +269,8 @@ kbd { font-family: var(--mono); background: var(--control); border: 1px solid va
 
   <aside id="panel" class="panel" aria-label="Panel de parámetros">
     <header class="panel-cab">
-      <h1>Simulador de boids 3D <small>(v2.2)</small></h1>
-      <p>Bandada emergente en tres dimensiones a partir de reglas locales. Sin líder, sin centro de masa global. Arrastrá para orbitar la cámara, movés un control y la dinámica cambia en vivo. Esta versión suma zonas de Couzin, dormidero y velocidad de crucero (StarDisplay), un halcón autónomo, nuevas métricas y tema claro. Al abrir se carga el preset «Estorninos sobre el dormidero» (Hildenbrandt et al. 2010).</p>
+      <h1>Simulador de boids 3D</h1>
+      <p>Bandada emergente en tres dimensiones a partir de reglas locales. Sin líder, sin centro de masa global. Arrastrá para orbitar la cámara, movés un control y la dinámica cambia en vivo. Al abrir se carga el preset «Estorninos sobre el dormidero» (Hildenbrandt et al. 2010).</p>
     </header>
 
     <details id="d-io">
@@ -314,7 +314,7 @@ kbd { font-family: var(--mono); background: var(--control); border: 1px solid va
           <button id="btnCamara2" type="button" title="Vuelve la cámara a la vista inicial que encuadra toda la caja (tecla C)">Reset Cámara</button>
           <button id="btnRotacion2" type="button" aria-pressed="false" title="Detiene o reanuda el giro automático de la cámara alrededor del objetivo (tecla O)">Reanudar rotación</button>
         </div>
-        <p class="nota" id="ayuda-camara">Arrastrar: orbitar · Rueda: acercar/alejar · Shift+arrastrar o botón derecho: desplazar · Clic sin arrastrar (rol Depredador): colocar o quitar un depredador fijo · Tecla O: detener/reanudar la rotación.</p>
+        <p class="nota" id="ayuda-camara">Arrastrar: orbitar · Rueda: acercar/alejar · Shift+arrastrar o botón derecho: desplazar</p>
       </div>
     </details>
 
