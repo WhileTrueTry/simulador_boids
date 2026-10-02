@@ -1,0 +1,2684 @@
+<!DOCTYPE html>
+<html lang="es-AR" dir="ltr" data-tema="claro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Simulador de boids 3D (v2.2) — bandada emergente en tres dimensiones (Reynolds, Ballerini, Couzin, Vicsek, Hildenbrandt, Bialek, Storms)</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0b0f17;
+  --panel: #111827;
+  --panel2: #0e1420;
+  --control: #182234;
+  --borde: #243044;
+  --texto: #e6edf3;
+  --texto2: #9fb0c3;
+  --acento: #4cc9f0;
+  --verde: #7ee787;
+  --naranja: #ff9f43;
+  --rojo: #ff4d4f;
+  --vidrio: rgba(11, 15, 23, 0.72);   /* fondos translúcidos del HUD y la barra */
+  --sobre-acento: #06202a;            /* texto sobre fondo de acento */
+  --radio: 10px;
+  --fuente: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+}
+/* Tema claro: mismas variables, otra paleta. Se activa con data-tema="claro" en <html> (preferencia guardada). */
+html[data-tema="claro"] {
+  color-scheme: light;
+  --bg: #f6f8fb;
+  --panel: #ffffff;
+  --panel2: #f1f4f8;
+  --control: #e6ebf2;
+  --borde: #cfd7e2;
+  --texto: #14202e;
+  --texto2: #4b5c70;
+  --acento: #0b7aa8;
+  --verde: #1f8a3c;
+  --naranja: #d9731a;
+  --rojo: #d0021b;
+  --vidrio: rgba(255, 255, 255, 0.78);
+  --sobre-acento: #ffffff;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--texto);
+  font-family: var(--fuente);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+.app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  /* Fila de tamaño fijo: el alto del escenario depende solo del viewport, nunca del contenido. */
+  grid-template-rows: minmax(0, 1fr);
+  block-size: 100vh;
+  block-size: 100dvh;
+  overflow: hidden;
+}
+.escenario { position: relative; min-inline-size: 0; min-block-size: 0; overflow: hidden; background: var(--bg); }
+#lienzo {
+  /* Fuera del flujo: el tamaño del bitmap (atributos width/height) no puede alterar el layout
+     del contenedor, lo que evita el bucle "cambio de tamaño → redibujo → cambio de tamaño". */
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+#lienzo.arrastrando { cursor: grabbing; }
+.hud {
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-start: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  background: var(--vidrio);
+  border: 1px solid var(--borde);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  pointer-events: none;
+  max-inline-size: calc(100% - 20px);
+}
+.hud-k { color: var(--texto2); }
+.badge {
+  background: var(--naranja);
+  color: #1a1206;
+  border-radius: 6px;
+  padding: 0 6px;
+  font-weight: 700;
+}
+.badge.render { background: var(--acento); color: var(--sobre-acento); }
+.badge.render.suave { background: var(--control); color: var(--texto2); border: 1px solid var(--borde); }
+.barra {
+  position: absolute;
+  inset-block-end: 10px;
+  inset-inline-start: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  max-inline-size: calc(100% - 20px);
+}
+.barra .sel { display: inline-flex; align-items: center; gap: 6px; color: var(--texto2); background: var(--vidrio); border-radius: 8px; padding-inline-start: 8px; }
+.barra button[aria-pressed="true"] { border-color: var(--acento); box-shadow: inset 0 0 0 1px var(--acento); }
+/* Descripción del preset elegido: ocupa una línea propia debajo de la barra de controles */
+.barra .preset-desc {
+  flex-basis: 100%;
+  max-inline-size: 640px;
+  margin: 0;
+  padding: 4px 10px;
+  background: var(--vidrio);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  color: var(--texto2);
+  font-size: 12.5px;
+}
+.barra .preset-desc[hidden] { display: none; }
+.panel {
+  background: var(--panel);
+  border-inline-start: 1px solid var(--borde);
+  overflow-y: auto;
+  padding: 14px;
+  scrollbar-width: thin;
+}
+.panel-cab h1 { font-size: 18px; margin: 0 0 4px; }
+.panel-cab p { margin: 0 0 12px; color: var(--texto2); font-size: 13px; }
+details {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  margin-block-end: 10px;
+  background: var(--panel2);
+}
+summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--texto2); font-family: var(--mono); }
+details[open] summary::after { content: "−"; }
+.sec { padding: 2px 12px 12px; display: grid; gap: 10px; }
+.ctl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  align-items: center;
+}
+.ctl label { color: var(--texto2); }
+.ctl output { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--texto); }
+.ctl input[type=range] { grid-column: 1 / -1; inline-size: 100%; accent-color: var(--acento); margin: 0; }
+.ctl select { grid-column: 1 / -1; }
+.check { display: flex; gap: 8px; align-items: center; color: var(--texto2); }
+.check input { accent-color: var(--acento); inline-size: 16px; block-size: 16px; margin: 0; }
+select, button, textarea, input[type=file] {
+  font: inherit;
+  color: var(--texto);
+  background: var(--control);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--acento); }
+button.primario { background: var(--acento); color: var(--sobre-acento); border-color: var(--acento); font-weight: 600; }
+button[aria-pressed="true"] { border-color: var(--acento); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
+textarea { inline-size: 100%; min-block-size: 110px; font-family: var(--mono); font-size: 12px; resize: vertical; }
+.acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-block-end: 10px; }
+.nota { color: var(--texto2); font-size: 12.5px; margin: 0; }
+.msg { color: var(--verde); font-size: 12.5px; min-block-size: 1.2em; margin: 4px 0 0; }
+.msg.error { color: var(--rojo); }
+.metricas { padding: 2px 12px 12px; }
+.metricas dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 0; }
+.metricas dt { color: var(--texto2); }
+.metricas dd { margin: 0; font-family: var(--mono); text-align: end; font-variant-numeric: tabular-nums; }
+#spark { inline-size: 100%; block-size: 64px; display: block; margin-block-start: 8px; background: var(--bg); border-radius: 6px; border: 1px solid var(--borde); }
+.acerca { padding: 0 12px 12px; color: var(--texto2); font-size: 13px; }
+.acerca h3 { font-size: 13.5px; color: var(--texto); margin: 12px 0 4px; }
+.acerca p { margin: 0 0 8px; }
+.acerca pre {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  background: var(--bg);
+  color: var(--texto);
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0 0 8px;
+}
+.acerca ul { padding-inline-start: 18px; margin: 0; }
+.acerca li { margin-block-end: 4px; }
+kbd { font-family: var(--mono); background: var(--control); border: 1px solid var(--borde); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+.solo-movil { display: none; }
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .panel {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-end: 0;
+    inline-size: min(92vw, 400px);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    z-index: 5;
+    box-shadow: 0 0 30px rgba(0,0,0,0.6);
+  }
+  body.panel-abierto .panel { transform: none; }
+  .solo-movil {
+    display: inline-block;
+    position: absolute;
+    inset-block-start: 10px;
+    inset-inline-end: 10px;
+    z-index: 6;
+  }
+  body.panel-abierto .solo-movil { inset-inline-end: calc(min(92vw, 400px) + 10px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="escenario" id="escenario" aria-label="Escena 3D de la simulación">
+    <canvas id="lienzo" role="img" aria-label="Simulación 3D de una bandada de boids"></canvas>
+    <div class="hud" id="hud" aria-live="off" title="Indicadores en vivo">
+      <span><span class="hud-k">φ</span> <span id="hud-phi">0,00</span></span>
+      <span title="Momento angular normalizado respecto del centro de masa (Couzin et al. 2002)"><span class="hud-k">m</span> <span id="hud-m">0,00</span></span>
+      <span><span class="hud-k">N</span> <span id="hud-n">0</span></span>
+      <span><span class="hud-k">grupos</span> <span id="hud-grupos">0</span></span>
+      <span><span class="hud-k">FPS</span> <span id="hud-fps">0</span></span>
+      <span><span class="hud-k">pasos</span> <span id="hud-pasos">0</span></span>
+      <span id="hud-focal" hidden><span class="hud-k">vecinos del ave focal</span> <span id="hud-focal-n">0</span></span>
+      <span id="hud-estado" class="badge" hidden>Pausado</span>
+      <span id="hud-render" class="badge render" title="Renderizador activo">…</span>
+    </div>
+    <div class="barra">
+      <button id="btnPausa" type="button" title="Pausar o reanudar la simulación (tecla Espacio)">Pausar</button>
+      <button id="btnPaso" type="button" title="Pausa y avanza un único paso de simulación (tecla N)">Paso</button>
+      <button id="btnReiniciar" type="button" title="Volver a sortear posiciones y velocidades conservando los parámetros (tecla R)">Reiniciar</button>
+      <button id="btnCamara" type="button" title="Vuelve la cámara a la vista inicial que encuadra toda la caja (tecla C)">Reset Cámara</button>
+      <button id="btnRotacion" type="button" aria-pressed="false" title="Activa o detiene el giro automático de la cámara (tecla O)">Rotación</button>
+      <button id="btnTema" type="button" aria-pressed="false" title="Alterna entre el tema oscuro y el claro (se recuerda en este navegador)">Tema claro</button>
+      <label class="sel" for="presets">Preset
+        <select id="presets" autocomplete="off" title="Configuraciones de ejemplo. Aplicar un preset reemplaza los parámetros y reinicia las posiciones."></select>
+      </label>
+      <p class="preset-desc" id="preset-desc" hidden></p>
+    </div>
+    <button id="btnPanel" type="button" class="solo-movil" aria-expanded="false" aria-controls="panel">Parámetros</button>
+  </section>
+
+  <aside id="panel" class="panel" aria-label="Panel de parámetros">
+    <header class="panel-cab">
+      <h1>Simulador de boids 3D <small>(v2.2)</small></h1>
+      <p>Bandada emergente en tres dimensiones a partir de reglas locales. Sin líder, sin centro de masa global. Arrastrá para orbitar la cámara, movés un control y la dinámica cambia en vivo. Esta versión suma zonas de Couzin, dormidero y velocidad de crucero (StarDisplay), un halcón autónomo, nuevas métricas y tema claro. Al abrir se carga el preset «Estorninos sobre el dormidero» (Hildenbrandt et al. 2010).</p>
+    </header>
+
+    <details id="d-io">
+      <summary>Exportar / Importar parámetros</summary>
+      <div class="sec">
+        <div class="acciones">
+          <button id="btnCopiar" type="button" title="Copia los parámetros actuales como JSON al portapapeles">Copiar JSON</button>
+          <button id="btnDescargar" type="button" title="Descarga los parámetros actuales como archivo .json">Descargar JSON</button>
+          <button id="btnDefaults" type="button" title="Vuelve todos los parámetros a los valores iniciales (preset «Estorninos sobre el dormidero»); conserva las posiciones">Restablecer valores por defecto</button>
+        </div>
+        <label for="txtJson" class="nota">Pegá acá un JSON de parámetros y aplicalo:</label>
+        <textarea id="txtJson" spellcheck="false" autocomplete="off" aria-label="JSON de parámetros"></textarea>
+        <div class="acciones">
+          <button id="btnAplicarJson" type="button" class="primario" title="Aplica el JSON pegado (los valores fuera de rango se recortan)">Aplicar JSON pegado</button>
+          <label class="nota" for="archivoJson">o importar archivo:</label>
+          <input id="archivoJson" type="file" accept="application/json,.json" aria-label="Importar archivo JSON">
+        </div>
+        <p id="msg" class="msg" role="status"></p>
+      </div>
+    </details>
+
+    <details open id="d-poblacion"><summary>Población y percepción</summary><div class="sec" id="sec-poblacion"></div></details>
+    <details open id="d-reglas"><summary>Reglas de Reynolds y zonas de Couzin</summary><div class="sec" id="sec-reglas"></div></details>
+    <details id="d-dinamica"><summary>Dinámica y anisotropía vertical</summary><div class="sec" id="sec-dinamica"></div></details>
+    <details id="d-dormidero"><summary>Dormidero y velocidad de crucero</summary><div class="sec" id="sec-dormidero"></div></details>
+    <details id="d-informados"><summary>Individuos informados (líderes)</summary><div class="sec" id="sec-informados"></div></details>
+    <details id="d-perturbaciones"><summary>Perturbaciones (ruido / depredador / halcón)</summary><div class="sec" id="sec-perturbaciones"></div></details>
+    <details id="d-entorno"><summary>Mundo y visualización</summary><div class="sec" id="sec-entorno"></div></details>
+    <details id="d-camara">
+      <summary>Cámara y renderizado</summary>
+      <div class="sec" id="sec-camara"></div>
+      <div class="sec">
+        <div class="ctl" title="Tema de la interfaz y de la escena. Es una preferencia de este navegador: no forma parte de los parámetros, no se exporta en el JSON y los presets no la tocan.">
+          <label for="selTema">Tema</label>
+          <select id="selTema" autocomplete="off" aria-label="Tema de la interfaz">
+            <option value="oscuro">Oscuro</option>
+            <option value="claro">Claro</option>
+          </select>
+        </div>
+        <div class="acciones">
+          <button id="btnCamara2" type="button" title="Vuelve la cámara a la vista inicial que encuadra toda la caja (tecla C)">Reset Cámara</button>
+          <button id="btnRotacion2" type="button" aria-pressed="false" title="Detiene o reanuda el giro automático de la cámara alrededor del objetivo (tecla O)">Reanudar rotación</button>
+        </div>
+        <p class="nota" id="ayuda-camara">Arrastrar: orbitar · Rueda: acercar/alejar · Shift+arrastrar o botón derecho: desplazar · Clic sin arrastrar (rol Depredador): colocar o quitar un depredador fijo · Tecla O: detener/reanudar la rotación.</p>
+      </div>
+    </details>
+
+    <details open id="d-metricas">
+      <summary>Métricas</summary>
+      <div class="metricas">
+        <dl>
+          <dt title="Parámetro de orden (polarización): |Σ v̂ᵢ| / N. Vale 1 si todas las aves vuelan en la misma dirección y ≈0 si las direcciones son aleatorias.">Parámetro de orden φ</dt><dd id="m-phi">0,000</dd>
+          <dt title="Momento angular normalizado del grupo (Couzin et al. 2002): m = |Σᵢ r̂ᵢc × v̂ᵢ| / N, con rᵢc el desplazamiento (imagen mínima en modo toroidal) de cada ave respecto del centro de masa. Vale ≈1 si todas giran en el mismo sentido alrededor del centro (toro / molinete) y ≈0 si no hay rotación colectiva. Junto con φ clasifica las fases: enjambre (φ y m bajos), toro (φ bajo, m alto), grupo paralelo (φ alto, m bajo).">Momento angular normalizado m</dt><dd id="m-m">0,000</dd>
+          <dt title="Promedio, sobre las aves que tienen al menos un vecino dentro de R, de la distancia a su vecino más cercano (unidades del mundo).">Distancia media al vecino más cercano</dt><dd id="m-dist">—</dd>
+          <dt title="Rapidez media |v| de las aves (unidades por paso). Con la relajación de velocidad activa tiende a la velocidad de crucero.">Velocidad media |v|</dt><dd id="m-vmed">—</dd>
+          <dt title="Componentes conexas del grafo de vecindad (arista entre dos aves si están a menos de R). Se recalcula cada 10 pasos.">Número de grupos</dt><dd id="m-grupos">0</dd>
+          <dt title="Tamaño de la componente conexa más grande dividido por N. Es la métrica que responde si la bandada volvió a unirse: ≈1 → una sola población; ≈0,5 → la mitad de las aves vuela aparte. Se recalcula cada 10 pasos.">Fracción en el grupo mayor</dt><dd id="m-mayor">—</dd>
+          <dt title="Promedio de vecinos efectivamente usados por ave (después del filtro de campo de visión y, en modo topológico, del límite k).">Vecinos promedio por ave</dt><dd id="m-vec">0,0</dd>
+          <dt title="Proporciones de los ejes principales de la bandada: raíces cuadradas de los autovalores de la matriz de covarianza 3×3 de las posiciones (I₁ ≥ I₂ ≥ I₃), normalizadas a I₁ = 1, con una etiqueta cualitativa (esférica, discoidal o alargada). Ballerini et al. (2008) hallaron que las bandadas reales son delgadas y de proporciones aproximadamente constantes. Se recalcula cada 10 pasos; en modo toroidal se usa la imagen mínima alrededor del centro de masa y es aproximada si la bandada ocupa más de la mitad del mundo.">Forma de la bandada (I₁ : I₂ : I₃)</dt><dd id="m-forma">—</dd>
+          <dt title="Centro de masa de todas las aves (x · y · z), en unidades del mundo. En modo toroidal se calcula con la media circular de cada eje. Se puede dibujar con «Mostrar centro de masa».">Centro de masa (x · y · z)</dt><dd id="m-com">—</dd>
+          <dt title="Cuadros por segundo del navegador (promedio móvil).">FPS</dt><dd id="m-fps">0</dd>
+          <dt>N</dt><dd id="m-n">0</dd>
+          <dt title="Pasos de simulación desde el último reinicio.">Tiempo de simulación (pasos)</dt><dd id="m-pasos">0</dd>
+        </dl>
+        <canvas id="spark" role="img" aria-label="Serie temporal del parámetro de orden φ y del momento angular m (últimas 300 muestras)" title="Serie temporal de φ (color de acento) y de m (naranja): últimas 300 muestras, eje vertical de 0 a 1"></canvas>
+        <p class="nota">Series temporales de φ (acento) y m (naranja): últimas 300 muestras, de 0 a 1.</p>
+      </div>
+    </details>
+
+    <details id="d-acerca">
+      <summary>Acerca del modelo</summary>
+      <div class="acerca">
+        <h3>Boids: tres reglas locales, cero líderes</h3>
+        <p>El modelo canónico es <strong>Boids</strong> (Reynolds, 1987), un modelo <em>distribuido</em>: cada ave aplica tres reglas de dirección usando sólo a los vecinos que percibe. <strong>Separación</strong>: alejarse de quienes están demasiado cerca (peso ∝ 1/d). <strong>Alineación</strong>: igualar la velocidad media de los vecinos. <strong>Cohesión</strong>: moverse hacia el centro de masa de los vecinos. No existe un coordinador ni una vista global: la bandada es un patrón <strong>emergente</strong> de interacciones locales. En esta versión todo ocurre en tres dimensiones dentro de una caja (ancho X, profundidad Y, altura Z).</p>
+        <p>Punto clave: la cohesión usa el <strong>centro de masa local</strong> de los vecinos percibidos por cada ave, no el centro de masa de toda la bandada (ese sólo se muestra como métrica). Por eso pueden convivir varios grupos con rumbos distintos y fusionarse o dividirse.</p>
+
+        <h3>Vecindad métrica vs. topológica</h3>
+        <p>Reynolds define a los vecinos por distancia (radio R) y ángulo (campo de visión, ahora un cono alrededor de la dirección de vuelo). Ballerini et al. (2008) reconstruyeron en 3D bandadas reales de estorninos y hallaron que cada ave interactúa con un número fijo de vecinos más cercanos (≈6–7) independientemente de la distancia: interacción <strong>topológica</strong>, que mantiene la cohesión aun cuando la densidad cambia. Activá el modo topológico y comparalo. La separación (evitar colisiones) se mantiene métrica en ambos modos. Notá que en 3D, para el mismo R y N, cada ave tiene menos vecinos que en 2D: el volumen crece más rápido que el área.</p>
+
+        <h3>Forma de la bandada y anisotropía vertical</h3>
+        <p>Ballerini et al. (2008) también midieron que las bandadas son <strong>delgadas</strong> (su dimensión menor es mucho más chica que las otras dos), con proporciones más o menos constantes, y que tienden a deslizarse paralelas al suelo. La métrica «Forma de la bandada» reproduce ese análisis: autovalores de la matriz de covarianza de posiciones → proporciones I₁ : I₂ : I₃ de los ejes principales. El parámetro <strong>anisotropía vertical κ</strong> introduce la asimetría con tres términos locales: amortigua la componente vertical de la velocidad, hace que cada ave iguale la altura media de sus vecinas percibidas (un resorte vertical acotado) y mide la separación en una métrica achatada en la que el eje vertical está comprimido por (1 − κ), de modo que dos aves apiladas se repelen en horizontal. Con κ alto la bandada tiende a volar en láminas horizontales delgadas (mirá la métrica pasar de «esférica» a «discoidal»).</p>
+
+        <h3>«Líderes» = individuos informados</h3>
+        <p>Couzin, Krause, Franks y Levin (2005) mostraron que no hace falta un líder explícito: basta una pequeña fracción <em>p</em> de individuos <strong>informados</strong> con una dirección preferida <em>g</em> (acá dada por acimut y elevación), que ponderan esa preferencia con un peso <em>ω</em> frente a las interacciones sociales, para guiar a todo el grupo. El resto es «naif»: no sabe quién está informado ni sigue a nadie en particular.</p>
+
+        <h3>Ruido y transición orden–desorden</h3>
+        <p>Vicsek et al. (1995) agregaron una perturbación angular η al rumbo de cada partícula. En 3D la implementamos rotando la velocidad un ángulo uniforme en [−η/2, η/2] alrededor de un eje aleatorio perpendicular a ella (sin sesgo). Al aumentar η, el parámetro de orden φ cae de ≈1 (movimiento colectivo ordenado) a ≈0 (desorden): una transición de fase análoga a las de la física estadística.</p>
+
+        <h3>Zonas de Couzin: enjambre, toro y grupo paralelo (2002)</h3>
+        <p>Couzin, Krause, James, Ruxton y Franks (2002) formularon un modelo zonal en 3D: alrededor de cada individuo hay una <strong>zona de repulsión</strong> (máxima prioridad: evitar colisiones), una <strong>zona de orientación</strong> (igualar el rumbo de los vecinos) y una <strong>zona de atracción</strong> (acercarse a ellos), más un volumen ciego opcional detrás; los individuos se mueven a velocidad constante y con una tasa de giro limitada. El hallazgo central: cambios menores en el ancho de la zona de orientación producen transiciones mayores en el comportamiento colectivo —enjambre → toro (molinete) → grupo paralelo dinámico → grupo altamente paralelo— y el sistema exhibe histéresis, una «memoria colectiva»: la fase alcanzada depende de la historia previa del grupo y no sólo de los parámetros actuales. Para clasificar las fases usaron dos cantidades: la polarización φ y el <strong>momento angular normalizado m</strong> respecto del centro de masa (enjambre: φ y m bajos; toro: φ bajo, m alto; grupo paralelo: φ alto, m bajo). En este simulador la zona de repulsión es el radio de separación, la zona de orientación es el nuevo <strong>radio de alineación R_ali</strong> (la alineación sólo usa vecinos a menos de R_ali) y la zona de atracción es el radio de percepción R (la cohesión usa todos los vecinos percibidos). Fijá velocidad mínima = máxima para reproducir la velocidad constante y una fuerza máxima baja para limitar el giro; los presets «Zonas de Couzin» recorren las tres fases.</p>
+
+        <h3>Dormidero, velocidad de crucero y alabeo (StarDisplay, 2010)</h3>
+        <p>Hildenbrandt, Carere y Hemelrijk (2010) construyeron el modelo <strong>StarDisplay</strong> para reproducir los despliegues aéreos de miles de estorninos sobre sus dormideros, en los que «thousands of individuals form multiple flocks which are continually changing shape and density, while splitting and merging». Las reglas usuales de separación, atracción y alineación no alcanzaron: hubo que agregar (1) una aerodinámica simplificada, en especial el <strong>alabeo</strong> (rolido) al girar; (2) el <strong>movimiento preferencial por encima del dormidero</strong> (el sitio donde duermen), y (3) un <strong>número bajo y fijo de vecinos</strong> de interacción (rango topológico). El dormidero es lo que mantiene el despliegue en una zona y permite que las sub-bandadas se vuelvan a fusionar. Acá, la sección «Dormidero y velocidad de crucero» agrega una atracción horizontal hacia el centro de la caja que sólo actúa fuera del radio del dormidero (con una rampa suave hasta el doble del radio), una altura preferida, y una <strong>velocidad de crucero</strong> individual v0_i = v_crucero·(1 + σ·ξ_i) hacia la que cada ave relaja su rapidez (control de velocidad de StarDisplay); el alabeo visual ya existía y se conserva.</p>
+
+        <h3>¿Por qué se dividen y no se vuelven a unir?</h3>
+        <p>Con reglas puramente locales no hay atracción de largo alcance: un ave sólo «ve» a menos de R. En un mundo grande y poco denso, la nube inicial aleatoria se condensa en varias sub-bandadas; cada una se alinea internamente, y dos sub-bandadas que vuelan con el mismo rumbo no vuelven a encontrarse nunca. En un toro sólo chocan —y se fusionan— los grupos con rumbos distintos; cuando todos los rumbos ya coinciden, el estado <strong>«ordenado pero fragmentado»</strong> es estable: φ ≈ 1 pero muchos grupos. Los estorninos reales sí se reagrupan porque comparten un atractor (el dormidero), tienen bordes, depredadores y un alcance visual mucho mayor que el rango de interacción. De ahí los parámetros nuevos: probá «Fragmentación en mundo grande» y después «Estorninos sobre el dormidero», y mirá la métrica «Fracción en el grupo mayor».</p>
+
+        <h3>Máxima entropía: la interacción es topológica (Bialek 2012)</h3>
+        <p>Bialek et al. (2012) construyeron, a partir de datos de campo de bandadas reales, un modelo de <strong>máxima entropía</strong>: las interacciones locales de alineación por pares bastan para predecir cómo se propaga el orden a través de toda la bandada, sin parámetros libres, y el número de vecinos con los que cada ave interactúa es independiente de la densidad de la bandada (topológico, no métrico). Es el sustento estadístico del modo topológico de este simulador.</p>
+
+        <h3>Patrones de escape colectivo ante un halcón (Storms 2019)</h3>
+        <p>Storms, Carere, Zoratto y Hemelrijk (2019) analizaron 182 secuencias de caza de halcones sobre bandadas de estorninos e identificaron patrones de escape colectivo: «flash expansion» (expansión súbita), «blackening» (oscurecimiento por compactación), «wave event» (onda), «vacuole» (vacuola), «cordon» (cordón) y «split» (división). El patrón depende del patrón previo y de la amenaza (velocidad y dirección del ataque): la expansión súbita es más frecuente con ataques rápidos desde arriba y suele ir seguida de una división, aunque las bandadas a menudo permanecen intactas; a mayor frecuencia de ataques, más eventos de escape. El <strong>halcón autónomo</strong> de la sección «Perturbaciones» es una masa puntual con dirección propia que ataca al centro de masa (produce expansiones súbitas y vacuolas) o al ave más cercana (persecución) durante el 60 % de cada período y luego se retira a su posadero para que los ataques se repitan; las aves huyen de él igual que del depredador del cursor.</p>
+
+        <h3>Ecuación de actualización (pseudocódigo)</h3>
+<pre>para cada ave i (posición p_i, velocidad v_i ∈ ℝ³):
+  cand = { j : |p_j − p_i| &lt; R  y  ángulo(v_i, p_j − p_i) &lt; FOV/2 }     zona de atracción
+  vecinos = cand                         (métrico)
+          = los k más cercanos de cand   (topológico)
+  sep = Σ −d̃_ij/|d̃_ij|²                 para j con |p_j − p_i| &lt; R_sep    zona de repulsión
+        d̃ = (dx, dy, (1−κ)·dz)          métrica achatada (κ = 0: isotrópica)
+  ali = promedio(v_j)                    sobre vecinos con |p_j − p_i| &lt; R_ali   zona de orientación
+  coh = promedio(p_j) − p_i              sobre todos los vecinos (centro de masa LOCAL)
+  a_i = w_s·steer(sep) + w_a·steer(ali) + w_c·steer(coh)
+        + κ·clamp(0,02·coh_z, ±2·F_max)·ẑ        igualar altura local
+        [+ ω·steer(g)  si i está informada]
+        [+ w_m·steer(p_i − p_a)  para cada amenaza a (cursor, marcador, halcón) con |p_i − p_a| &lt; R_miedo]
+        [+ w_d·rampa(r_i)·steer_xy(c_dorm − p_i)   si r_i &gt; R_dorm    (dormidero; r_i = distancia horizontal
+             al centro, rampa suave de 0 en R_dorm a 1 en 2·R_dorm)]
+        [+ w_h·clamp( clamp(0,02·(z_pref − z_i), ±v_max) − v_i,z , ±F_max )·ẑ   altura preferida]
+  con  steer(d) = clamp( normalizar(d)·v_max − v_i , F_max )
+
+luego, para todas las aves a la vez:
+  v_i ← v_i + a_i·dt
+  v_i,z ← v_i,z·(1 − 0,08·κ·dt)           amortiguación vertical
+  v_i ← rotar(v_i, eje ⊥ aleatorio, U(−η/2, η/2))   ruido
+  |v_i| ← |v_i| + λ·(v0_i − |v_i|)·dt     crucero: v0_i = v_crucero·(1 + σ·ξ_i), ξ_i ~ N(0,1) recortado a ±2
+  |v_i| ← clamp(|v_i|, v_min, v_max)
+  p_i ← p_i + v_i·dt                     (envolvente o rebote en la caja)
+
+halcón (si está activo): masa puntual con su propio steer (tope de giro G_h, rapidez ≤ v_h·v_max)
+  hacia el centro de masa o hacia el ave más cercana durante el 60 % de cada período de ataque;
+  el 40 % restante vuelve a su posadero (una arista de la caja a 0,8·altura).
+
+métricas: φ = |Σ v̂_i| / N ; m = |Σ r̂_ic × v̂_i| / N (r_ic: desplazamiento desde el centro de masa) ;
+          grupos = componentes conexas del grafo de vecindad ; fracción en el grupo mayor ;
+          forma = √autovalores(cov(p)) normalizados ; velocidad media |v|</pre>
+
+        <h3>Implementación</h3>
+        <p>Búsqueda de vecinos con una grilla espacial uniforme 3D (hash) de celda ≥ R: cada ave sólo examina las 27 celdas circundantes (con imagen mínima en modo toroidal), lo que da costo O(N) por paso. Posiciones y velocidades viven en arreglos tipados; la actualización es sincrónica. Las amenazas (cursor depredador, marcador fijo y halcón) se evalúan desde una lista de tamaño fijo con distancias al cuadrado, sin asignar memoria en el bucle. El tema claro u oscuro es una preferencia de la interfaz guardada en el navegador: cambia las paletas y el fondo sin recrear el renderizador. El dibujo usa <strong>WebGL2</strong> escrito a mano (una malla por ave dibujada con instancias, iluminación plana y niebla por profundidad); si WebGL2 no está disponible, se pasa automáticamente a una proyección por software sobre <strong>Canvas 2D</strong> (ordenamiento por profundidad, tamaño y color según la distancia). El renderizador activo se indica en el HUD.</p>
+
+        <h3>Cámara e interacción</h3>
+        <p><strong>Arrastrar</strong> orbita la cámara alrededor del objetivo; <strong>rueda</strong> acerca o aleja; <strong>Shift+arrastrar</strong> o <strong>botón derecho</strong> desplaza el objetivo. El cursor se proyecta al plano que pasa por el objetivo de la cámara y es perpendicular a la dirección de vista: ese punto 3D es el que atrae, asusta o guía a las aves informadas, y sólo actúa mientras el puntero está sobre la escena y no se está arrastrando. Un clic sin arrastre (menos de 4 px) en rol Depredador coloca o quita un depredador fijo.</p>
+
+        <h3>Atajos de teclado</h3>
+        <p><kbd>Espacio</kbd> pausar/reanudar · <kbd>N</kbd> un paso · <kbd>R</kbd> reiniciar · <kbd>C</kbd> reiniciar cámara · <kbd>O</kbd> detener/reanudar la rotación automática · <kbd>P</kbd> mostrar/ocultar panel (pantallas chicas).</p>
+
+        <h3>Referencias</h3>
+        <ul>
+          <li>Reynolds, C. W. (1987). Flocks, Herds, and Schools: A Distributed Behavioral Model. <em>SIGGRAPH '87 / Computer Graphics</em>, 21(4), 25–34.</li>
+          <li>Ballerini, M. et al. (2008). Interaction ruling animal collective behavior depends on topological rather than metric distance. <em>PNAS</em>, 105(4), 1232–1237.</li>
+          <li>Couzin, I. D., Krause, J., Franks, N. R. &amp; Levin, S. A. (2005). Effective leadership and decision-making in animal groups on the move. <em>Nature</em>, 433, 513–516.</li>
+          <li>Vicsek, T. et al. (1995). Novel type of phase transition in a system of self-driven particles. <em>Phys. Rev. Lett.</em>, 75, 1226–1229.</li>
+          <li>Hildenbrandt, H., Carere, C. &amp; Hemelrijk, C. K. (2010). Self-organized aerial displays of thousands of starlings: a model. <em>Behavioral Ecology</em>, 21(6), 1349–1359.</li>
+          <li>Couzin, I. D., Krause, J., James, R., Ruxton, G. D. &amp; Franks, N. R. (2002). Collective memory and spatial sorting in animal groups. <em>Journal of Theoretical Biology</em>, 218(1), 1–11.</li>
+          <li>Bialek, W. et al. (2012). Statistical mechanics for natural flocks of birds. <em>PNAS</em>, 109(13), 4786–4791.</li>
+          <li>Storms, R. F., Carere, C., Zoratto, F. &amp; Hemelrijk, C. K. (2019). Complex patterns of collective escape in starling flocks under predation. <em>Behavioral Ecology and Sociobiology</em>, 73, 10.</li>
+        </ul>
+      </div>
+    </details>
+  </aside>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   Simulador de boids 3D (v2.2) — núcleo de simulación (independiente del DOM)
+   Ejes: X = ancho, Y = profundidad, Z = altura (vertical, hacia arriba).
+   ===================================================================== */
+const TAU = Math.PI * 2, DEG = Math.PI / 180;
+const KAPPA_AMORT = 0.08;    // fracción de v_z amortiguada por paso con κ = 1
+const KAPPA_RESORTE = 0.02;  // aceleración vertical por unidad de desnivel respecto de la altura media local (κ = 1)
+const ALTURA_GANANCIA = 0.02; // v_z deseada por unidad de desnivel respecto de la altura preferida (dormidero), acotada a ±v_max
+const MAX_K = 30;            // tope de vecinos topológicos
+const FRACCION_ATAQUE = 0.6; // fracción de cada período en la que el halcón ataca (el resto vuelve al posadero)
+const RADIO_LLEGADA_HALCON = 100; // el halcón frena suavemente al acercarse al posadero
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+/* Autovalores de una matriz simétrica 3×3 (Jacobi cíclico). A: Float64Array(9) por filas, se destruye.
+   Devuelve en out[0..2] los autovalores en orden decreciente. */
+const _PARES = [[0, 1], [0, 2], [1, 2]];
+function autovaloresSim3(A, out) {
+  for (let barrido = 0; barrido < 60; barrido++) {
+    const off = A[1] * A[1] + A[2] * A[2] + A[5] * A[5];
+    const diag = A[0] * A[0] + A[4] * A[4] + A[8] * A[8];
+    if (off <= 1e-24 * Math.max(1, diag)) break;
+    for (let r = 0; r < 3; r++) {
+      const p = _PARES[r][0], q = _PARES[r][1];
+      const apq = A[p * 3 + q];
+      if (Math.abs(apq) < 1e-300) continue;
+      const theta = (A[q * 3 + q] - A[p * 3 + p]) / (2 * apq);
+      const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      for (let k = 0; k < 3; k++) {
+        const akp = A[k * 3 + p], akq = A[k * 3 + q];
+        A[k * 3 + p] = c * akp - s * akq; A[k * 3 + q] = s * akp + c * akq;
+      }
+      for (let k = 0; k < 3; k++) {
+        const apk = A[p * 3 + k], aqk = A[q * 3 + k];
+        A[p * 3 + k] = c * apk - s * aqk; A[q * 3 + k] = s * apk + c * aqk;
+      }
+    }
+  }
+  let l1 = A[0], l2 = A[4], l3 = A[8], t;
+  if (l1 < l2) { t = l1; l1 = l2; l2 = t; }
+  if (l2 < l3) { t = l2; l2 = l3; l3 = t; }
+  if (l1 < l2) { t = l1; l1 = l2; l2 = t; }
+  out[0] = l1; out[1] = l2; out[2] = l3;
+  return out;
+}
+
+class Boids {
+  constructor(maxN) {
+    this.maxN = maxN;
+    this.n = 0;
+    // Estado de las aves (arreglos tipados, sin asignaciones en el bucle caliente)
+    this.px = new Float32Array(maxN); this.py = new Float32Array(maxN); this.pz = new Float32Array(maxN);
+    this.vx = new Float32Array(maxN); this.vy = new Float32Array(maxN); this.vz = new Float32Array(maxN);
+    this.ax = new Float32Array(maxN); this.ay = new Float32Array(maxN); this.az = new Float32Array(maxN);
+    this.informado = new Uint8Array(maxN);
+    this.multVel = new Float32Array(maxN);       // ξ_i ~ N(0,1) recortado a ±2: variabilidad individual de la velocidad de crucero
+    // Grilla espacial 3D (ordenamiento por conteo)
+    this.cellIdx = new Int32Array(maxN);
+    this.cellEntries = new Int32Array(maxN);
+    this.cols = 1; this.rows = 1; this.capas = 1;
+    this.cellStart = new Int32Array(2);
+    this.cellFill = new Int32Array(1);
+    // Auxiliares
+    this.parent = new Int32Array(maxN);          // union-find para grupos
+    this.tamGrupo = new Int32Array(maxN);        // tamaño de cada componente (fracción en el grupo mayor)
+    this.kIdx = new Int32Array(MAX_K + 2);       // k más cercanos (modo topológico), ordenados por distancia
+    this.kD2 = new Float32Array(MAX_K + 2);
+    this.focalVecinos = new Int32Array(maxN);    // vecinos del ave focal (visualización)
+    this.focalCount = 0;
+    this.focal = -1;
+    // Mundo (caja) e interacción externa
+    this.wx = 800; this.wy = 500; this.wz = 500;
+    this.cursorX = 0; this.cursorY = 0; this.cursorZ = 0; this.cursorActivo = false;
+    this.marcadorX = 0; this.marcadorY = 0; this.marcadorZ = 0; this.marcadorActivo = false;
+    // Amenazas (lista de tamaño fijo: cursor, marcador fijo, halcón)
+    this.amX = new Float64Array(3); this.amY = new Float64Array(3); this.amZ = new Float64Array(3); this.nAmenazas = 0;
+    // Halcón autónomo (Storms et al. 2019): masa puntual con posición y velocidad propias
+    this.halconActivo = false; this.halconAtacando = false;
+    this.hX = 0; this.hY = 0; this.hZ = 0; this.hVX = 0; this.hVY = 0; this.hVZ = 0;
+    this.vHalcon = 1; this.giroHalcon = 0.15; this.objetivoHalcon = 'centro'; this.periodoAtaque = 900;
+    // Métricas
+    this.pasos = 0;
+    this.phi = 0;
+    this.momentoAngular = 0;   // m = |Σ r̂_ic × v̂_i| / N (Couzin et al. 2002)
+    this.fraccionMayor = 0;    // tamaño de la componente conexa mayor / N
+    this.velMedia = 0;
+    this.distMediaVecino = 0;
+    this.vecinosPromedio = 0;
+    this.grupos = 0;
+    this.comX = 400; this.comY = 250; this.comZ = 250;
+    this.formaL = new Float64Array(3);   // √autovalores (ejes principales)
+    this.formaR2 = 0; this.formaR3 = 0; this.formaEtiqueta = '—'; this.formaValida = false;
+    this._A = new Float64Array(9); this._lam = new Float64Array(3);
+    // Registros temporales para _steer
+    this._vxi = 0; this._vyi = 0; this._vzi = 0; this._ax = 0; this._ay = 0; this._az = 0;
+    this.p = null;
+    this.R = 90; this.R2 = 8100; this.rSep = 30; this.sep2 = 900;
+    this.rAli = 90; this.rAli2 = 8100;                       // zona de orientación (Couzin et al. 2002)
+    this.vmin = 1; this.vmax = 3; this.fmax = 0.1; this.fmax2 = 0.01;
+    this.kappa = 0; this.kdVertical = 0; this.resorteZ = 0; this.limResorteZ = 0;
+    this.wDorm = 0; this.rDorm = 150; this.fracAltura = 0.5; this.wAlt = 0;   // dormidero (StarDisplay)
+    this.velCrucero = 2.5; this.relax = 0; this.sigmaV = 0;                   // velocidad de crucero
+  }
+
+  /* Fija los parámetros y recalcula magnitudes derivadas. */
+  setParams(p) {
+    this.p = p;
+    const R = Math.max(1, p.radioPercepcion);
+    this.R = R; this.R2 = R * R;
+    const rs = Math.max(0, p.radioSeparacion);
+    this.rSep = rs; this.sep2 = rs * rs;
+    // Zona de orientación: la alineación sólo usa vecinos a menos de R_ali (≤ R; con R_ali = R no cambia nada)
+    const ra = Math.min(R, Math.max(1, Number.isFinite(p.radioAlineacion) ? p.radioAlineacion : R));
+    this.rAli = ra; this.rAli2 = ra * ra;
+    const fov = clamp(p.campoVision, 1, 360);
+    this.fovActivo = fov < 359.9;
+    const ch = Math.cos(fov * 0.5 * DEG);
+    this.cosHalf = ch; this.cosHalf2 = ch * ch; this.cosHalfPos = ch > 0;
+    this.topo = p.vecindad === 'topologico';
+    this.k = clamp(Math.round(p.k), 1, MAX_K);
+    this.toro = p.bordes === 'toroidal';
+    this.vmax = Math.max(0.05, p.velMax);
+    this.vmin = Math.max(0, Math.min(p.velMin, this.vmax));
+    this.vmax2 = this.vmax * this.vmax;
+    this.vmin2 = this.vmin * this.vmin;
+    this.fmax = Math.max(0.001, p.fuerzaMax);
+    this.fmax2 = this.fmax * this.fmax;
+    this.dt = Math.max(0.01, p.dt);
+    this.eta = Math.max(0, p.ruido);
+    this.kappa = clamp(p.anisotropiaVertical, 0, 1);
+    // Anisotropía vertical: amortiguación de v_z por paso, resorte hacia la altura media local (acotado)
+    this.kdVertical = Math.min(0.9, this.kappa * KAPPA_AMORT * this.dt);
+    this.resorteZ = this.kappa * KAPPA_RESORTE;
+    this.limResorteZ = this.kappa * 2 * this.fmax;
+    this.wSep = p.pesoSeparacion; this.wAli = p.pesoAlineacion; this.wCoh = p.pesoCohesion;
+    this.wInf = p.pesoInformados;
+    const acz = p.acimutPreferido * DEG, elv = clamp(p.elevacionPreferida, -90, 90) * DEG;
+    this.gx = Math.cos(elv) * Math.cos(acz); this.gy = Math.cos(elv) * Math.sin(acz); this.gz = Math.sin(elv);
+    this.seguirCursor = !!p.informadosCursor;
+    this.modoMouse = p.modoMouse;
+    this.miedo2 = p.radioMiedo * p.radioMiedo;
+    this.wMiedo = p.pesoMiedo; this.wAtr = p.pesoAtraccion;
+    this.margen = Math.max(1, p.margen);
+    this.focal = p.mostrarPercepcion ? 0 : -1;
+    // Dormidero y altura preferida (StarDisplay, Hildenbrandt et al. 2010)
+    this.wDorm = Math.max(0, p.pesoDormidero || 0);
+    this.rDorm = Math.max(1, p.radioDormidero || 150);
+    this.fracAltura = clamp(Number.isFinite(p.alturaPreferida) ? p.alturaPreferida : 0.5, 0, 1);
+    this.wAlt = clamp(p.pesoAltura || 0, 0, 1);
+    // Velocidad de crucero individual con relajación (control de velocidad de StarDisplay)
+    this.velCrucero = Math.max(0.05, p.velCrucero || 2.5);
+    this.relax = clamp(p.relajacionVelocidad || 0, 0, 1);
+    this.sigmaV = clamp(p.variabilidadVelocidad || 0, 0, 0.5);
+    // Halcón autónomo (Storms et al. 2019)
+    this.halconActivo = !!p.halconActivo;
+    this.vHalcon = Math.max(0.05, p.velHalcon || 1.3) * this.vmax;
+    this.giroHalcon = Math.max(0.001, p.giroHalcon || 0.15);
+    this.objetivoHalcon = p.objetivoHalcon === 'cercana' ? 'cercana' : 'centro';
+    this.periodoAtaque = Math.max(10, Math.round(p.periodoAtaque || 900));
+    const wx = Math.max(20, p.mundoX), wy = Math.max(20, p.mundoY), wz = Math.max(20, p.mundoZ);
+    if (wx !== this.wx || wy !== this.wy || wz !== this.wz) this.setWorld(wx, wy, wz);
+    else this.reconstruirGrilla();
+    this.ajustarN(Math.round(p.N));
+    this.marcarInformados();
+  }
+
+  /* Cambia la caja; reubica (envuelve) las aves que quedaron afuera. */
+  setWorld(wx, wy, wz) {
+    this.wx = Math.max(20, wx); this.wy = Math.max(20, wy); this.wz = Math.max(20, wz);
+    const px = this.px, py = this.py, pz = this.pz, WX = this.wx, WY = this.wy, WZ = this.wz;
+    for (let i = 0; i < this.n; i++) {
+      if (!(px[i] >= 0 && px[i] < WX)) px[i] = ((px[i] % WX) + WX) % WX;
+      if (!(py[i] >= 0 && py[i] < WY)) py[i] = ((py[i] % WY) + WY) % WY;
+      if (!(pz[i] >= 0 && pz[i] < WZ)) pz[i] = ((pz[i] % WZ) + WZ) % WZ;
+    }
+    this.reconstruirGrilla();
+  }
+
+  reconstruirGrilla() {
+    // Celda ≥ max(R, R_sep): los vecinos siempre caen en las 27 celdas circundantes.
+    // Tope de 64 celdas por eje: si se alcanza, la celda crece (sigue siendo ≥ R).
+    const cell = Math.max(this.R || 10, this.rSep || 0, 10);
+    const cols = clamp(Math.floor(this.wx / cell), 1, 64);
+    const rows = clamp(Math.floor(this.wy / cell), 1, 64);
+    const capas = clamp(Math.floor(this.wz / cell), 1, 64);
+    if (cols !== this.cols || rows !== this.rows || capas !== this.capas || this.cellStart.length !== cols * rows * capas + 1) {
+      this.cols = cols; this.rows = rows; this.capas = capas;
+      this.cellStart = new Int32Array(cols * rows * capas + 1);
+      this.cellFill = new Int32Array(cols * rows * capas);
+    }
+  }
+
+  /* Cambia N: las aves nuevas nacen en posiciones aleatorias, las sobrantes se descartan. */
+  ajustarN(nuevoN) {
+    const n = Math.max(0, Math.min(this.maxN, nuevoN));
+    for (let i = this.n; i < n; i++) this._sortear(i);
+    this.n = n;
+  }
+
+  marcarInformados() {
+    const cant = Math.round(clamp(this.p.fraccionInformados, 0, 100) / 100 * this.n);
+    for (let i = 0; i < this.n; i++) this.informado[i] = i < cant ? 1 : 0;
+  }
+
+  _sortear(i) {
+    this.px[i] = Math.random() * this.wx;
+    this.py[i] = Math.random() * this.wy;
+    this.pz[i] = Math.random() * this.wz;
+    // Dirección uniforme sobre la esfera
+    const z = Math.random() * 2 - 1, r = Math.sqrt(Math.max(0, 1 - z * z)), a = Math.random() * TAU;
+    let s = this.vmin + Math.random() * Math.max(0, this.vmax - this.vmin);
+    if (!(s > 1e-6)) s = Math.max(this.vmin, this.vmax * 0.5);
+    this.vx[i] = r * Math.cos(a) * s; this.vy[i] = r * Math.sin(a) * s; this.vz[i] = z * s;
+    this.ax[i] = 0; this.ay[i] = 0; this.az[i] = 0;
+    // ξ_i ~ N(0,1) (Box–Muller) recortado a ±2: fijo por índice, así mover σ no produce parpadeo
+    let u1 = Math.random(); if (u1 < 1e-12) u1 = 1e-12;
+    this.multVel[i] = clamp(Math.sqrt(-2 * Math.log(u1)) * Math.cos(TAU * Math.random()), -2, 2);
+  }
+
+  /* Re-sortea posiciones y velocidades conservando los parámetros. */
+  reiniciar() {
+    for (let i = 0; i < this.n; i++) this._sortear(i);
+    this.pasos = 0; this.phi = 0; this.grupos = 0; this.distMediaVecino = 0; this.vecinosPromedio = 0;
+    this.momentoAngular = 0; this.fraccionMayor = 0; this.velMedia = 0;
+    this.comX = this.wx * 0.5; this.comY = this.wy * 0.5; this.comZ = this.wz * 0.5;
+    this.formaValida = false; this.formaEtiqueta = '—';
+    this._posarHalcon();
+  }
+
+  /* Posadero del halcón: una arista vertical de la caja (x = 0, y = 0) a 0,8 de la altura. */
+  _posarHalcon() {
+    this.hX = 0; this.hY = 0; this.hZ = 0.8 * this.wz;
+    this.hVX = 0; this.hVY = 0; this.hVZ = 0;
+    this.halconAtacando = false;
+  }
+
+  /* Un paso del halcón: durante la primera fracción de cada período ataca (centro de masa o ave más
+     cercana); el resto del período vuelve al posadero con llegada suave. Steer de Reynolds con tope
+     de giro G_h y rapidez ≤ v_h·v_max. Sin asignaciones. */
+  _pasoHalcon() {
+    const WX = this.wx, WY = this.wy, WZ = this.wz, toro = this.toro, dt = this.dt;
+    const per = this.periodoAtaque;
+    const atacando = (this.pasos % per) < per * FRACCION_ATAQUE;
+    this.halconAtacando = atacando;
+    let hx = this.hX, hy = this.hY, hz = this.hZ;
+    // La posición del halcón siempre queda dentro de la caja (por si cambió el mundo)
+    if (!(hx >= 0 && hx <= WX)) hx = clamp(hx, 0, WX);
+    if (!(hy >= 0 && hy <= WY)) hy = clamp(hy, 0, WY);
+    if (!(hz >= 0 && hz <= WZ)) hz = clamp(hz, 0, WZ);
+    let dx, dy, dz;
+    if (atacando) {
+      if (this.objetivoHalcon === 'cercana' && this.n > 0) {
+        const px = this.px, py = this.py, pz = this.pz, n = this.n, hxw = WX * 0.5, hyw = WY * 0.5, hzw = WZ * 0.5;
+        let mejor = Infinity, bx = 0, by = 0, bz = 0;
+        for (let i = 0; i < n; i++) {
+          let ex = px[i] - hx, ey = py[i] - hy, ez = pz[i] - hz;
+          if (toro) {
+            if (ex > hxw) ex -= WX; else if (ex < -hxw) ex += WX;
+            if (ey > hyw) ey -= WY; else if (ey < -hyw) ey += WY;
+            if (ez > hzw) ez -= WZ; else if (ez < -hzw) ez += WZ;
+          }
+          const d2 = ex * ex + ey * ey + ez * ez;
+          if (d2 < mejor) { mejor = d2; bx = ex; by = ey; bz = ez; }
+        }
+        dx = bx; dy = by; dz = bz;
+      } else {
+        dx = this.comX - hx; dy = this.comY - hy; dz = this.comZ - hz;
+        if (toro) {
+          const hxw = WX * 0.5, hyw = WY * 0.5, hzw = WZ * 0.5;
+          if (dx > hxw) dx -= WX; else if (dx < -hxw) dx += WX;
+          if (dy > hyw) dy -= WY; else if (dy < -hyw) dy += WY;
+          if (dz > hzw) dz -= WZ; else if (dz < -hzw) dz += WZ;
+        }
+      }
+    } else {
+      dx = 0 - hx; dy = 0 - hy; dz = 0.8 * WZ - hz;   // posadero (desplazamiento directo, también en el toro)
+    }
+    const vH = this.vHalcon, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    let vDes = vH;
+    if (!atacando && d < RADIO_LLEGADA_HALCON) vDes = vH * d / RADIO_LLEGADA_HALCON;   // llegada suave al posadero
+    let sx = -this.hVX, sy = -this.hVY, sz = -this.hVZ;
+    if (d > 1e-6) { const q = vDes / d; sx += dx * q; sy += dy * q; sz += dz * q; }
+    const s2 = sx * sx + sy * sy + sz * sz, g = this.giroHalcon;
+    if (s2 > g * g) { const f = g / Math.sqrt(s2); sx *= f; sy *= f; sz *= f; }
+    let vx = this.hVX + sx * dt, vy = this.hVY + sy * dt, vz = this.hVZ + sz * dt;
+    const v2 = vx * vx + vy * vy + vz * vz;
+    if (v2 > vH * vH) { const f = vH / Math.sqrt(v2); vx *= f; vy *= f; vz *= f; }
+    hx += vx * dt; hy += vy * dt; hz += vz * dt;
+    if (toro) {
+      if (hx < 0 || hx >= WX) hx = ((hx % WX) + WX) % WX;
+      if (hy < 0 || hy >= WY) hy = ((hy % WY) + WY) % WY;
+      if (hz < 0 || hz >= WZ) hz = ((hz % WZ) + WZ) % WZ;
+    } else {
+      if (hx < 0) { hx = 0; if (vx < 0) vx = -vx; } else if (hx > WX) { hx = WX; if (vx > 0) vx = -vx; }
+      if (hy < 0) { hy = 0; if (vy < 0) vy = -vy; } else if (hy > WY) { hy = WY; if (vy > 0) vy = -vy; }
+      if (hz < 0) { hz = 0; if (vz < 0) vz = -vz; } else if (hz > WZ) { hz = WZ; if (vz > 0) vz = -vz; }
+    }
+    if (!(Number.isFinite(hx) && Number.isFinite(hy) && Number.isFinite(hz) && Number.isFinite(vx) && Number.isFinite(vy) && Number.isFinite(vz))) {
+      this._posarHalcon(); return;
+    }
+    this.hX = hx; this.hY = hy; this.hZ = hz; this.hVX = vx; this.hVY = vy; this.hVZ = vz;
+  }
+
+  /* steer = clamp(normalizar(objetivo)·vmax − v, fmax), acumulado con peso w. */
+  _steer(tx, ty, tz, w) {
+    const m2 = tx * tx + ty * ty + tz * tz;
+    if (m2 < 1e-12 || w === 0) return;
+    const k = this.vmax / Math.sqrt(m2);
+    let sx = tx * k - this._vxi, sy = ty * k - this._vyi, sz = tz * k - this._vzi;
+    const s2 = sx * sx + sy * sy + sz * sz;
+    if (s2 > this.fmax2) { const f = this.fmax / Math.sqrt(s2); sx *= f; sy *= f; sz *= f; }
+    this._ax += sx * w; this._ay += sy * w; this._az += sz * w;
+  }
+
+  _find(i) {
+    const par = this.parent;
+    while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; }
+    return i;
+  }
+  _union(a, b) {
+    a = this._find(a); b = this._find(b);
+    if (a !== b) this.parent[a] = b;
+  }
+
+  /* Un paso de simulación (dt fijo tomado de los parámetros). */
+  step() {
+    const p = this.p; if (!p) return;
+    const n = this.n; if (n === 0) return;
+    const WX = this.wx, WY = this.wy, WZ = this.wz, hx = WX * 0.5, hy = WY * 0.5, hz = WZ * 0.5;
+    const toro = this.toro, topo = this.topo, k = this.k;
+    const px = this.px, py = this.py, pz = this.pz, vx = this.vx, vy = this.vy, vz = this.vz;
+    const ax = this.ax, ay = this.ay, az = this.az;
+    const informado = this.informado, kIdx = this.kIdx, kD2 = this.kD2, focalVec = this.focalVecinos;
+    const cols = this.cols, rows = this.rows, capas = this.capas, cells = cols * rows * capas;
+    const cellW = WX / cols, cellH = WY / rows, cellD = WZ / capas;
+    const cellStart = this.cellStart, cellFill = this.cellFill, cellIdx = this.cellIdx, entries = this.cellEntries;
+    const R2 = this.R2, sep2 = this.sep2, rAli2 = this.rAli2, fovActivo = this.fovActivo, cosHalf2 = this.cosHalf2, cosHalfPos = this.cosHalfPos;
+    const wSep = this.wSep, wAli = this.wAli, wCoh = this.wCoh, wInf = this.wInf, unoMenosKappa = 1 - this.kappa;
+    const resorteZ = this.resorteZ, limResorteZ = this.limResorteZ;
+    const seguirCursor = this.seguirCursor && this.cursorActivo;
+    const cX = this.cursorX, cY = this.cursorY, cZ = this.cursorZ;
+    const modoAtraer = this.modoMouse === 'atraer' && this.cursorActivo;
+    const modoDepredador = this.modoMouse === 'depredador';
+    const miedo2 = this.miedo2, wMiedo = this.wMiedo;
+    const margen = this.margen, fb = this.fmax * 4;
+    const focal = this.focal;
+    const doGroups = (this.pasos % 10) === 0;
+    // Dormidero (StarDisplay): centro horizontal de la caja, rampa suave entre R_dorm y 2·R_dorm; altura preferida
+    const wDorm = this.wDorm, rDorm = this.rDorm, rDorm2 = rDorm * rDorm, invRDorm = 1 / rDorm, cDx = hx, cDy = hy;
+    const wAlt = this.wAlt, zPref = this.fracAltura * WZ, vmaxD = this.vmax, fmaxD = this.fmax, fmax2D = this.fmax2;
+    // Amenazas: lista de tamaño fijo (cursor en rol depredador, marcador fijo, halcón), sin asignaciones
+    const amX = this.amX, amY = this.amY, amZ = this.amZ;
+    let nAm = 0;
+    if (modoDepredador && this.cursorActivo) { amX[nAm] = cX; amY[nAm] = cY; amZ[nAm] = cZ; nAm++; }
+    if (modoDepredador && this.marcadorActivo) { amX[nAm] = this.marcadorX; amY[nAm] = this.marcadorY; amZ[nAm] = this.marcadorZ; nAm++; }
+    if (this.halconActivo) { this._pasoHalcon(); amX[nAm] = this.hX; amY[nAm] = this.hY; amZ[nAm] = this.hZ; nAm++; }
+    this.nAmenazas = nAm;
+
+    /* ---- 1. Grilla espacial 3D: ordenamiento por conteo ---- */
+    cellStart.fill(0);
+    for (let i = 0; i < n; i++) {
+      let cx = (px[i] / cellW) | 0; if (cx < 0) cx = 0; else if (cx >= cols) cx = cols - 1;
+      let cy = (py[i] / cellH) | 0; if (cy < 0) cy = 0; else if (cy >= rows) cy = rows - 1;
+      let cz = (pz[i] / cellD) | 0; if (cz < 0) cz = 0; else if (cz >= capas) cz = capas - 1;
+      const c = (cz * rows + cy) * cols + cx;
+      cellIdx[i] = c; cellStart[c + 1]++;
+    }
+    for (let c = 0; c < cells; c++) cellStart[c + 1] += cellStart[c];
+    for (let c = 0; c < cells; c++) cellFill[c] = cellStart[c];
+    for (let i = 0; i < n; i++) entries[cellFill[cellIdx[i]]++] = i;
+
+    if (doGroups) { const par = this.parent; for (let i = 0; i < n; i++) par[i] = i; }
+    this.focalCount = 0;
+    // En modo toroidal con pocas celdas por eje, evitar visitar dos veces la misma celda envuelta
+    const dxTo = toro ? Math.min(1, cols - 2) : 1;
+    const dyTo = toro ? Math.min(1, rows - 2) : 1;
+    const dzTo = toro ? Math.min(1, capas - 2) : 1;
+    // Imagen mínima: con ≥ 3 celdas por eje basta un desplazamiento fijo por celda envuelta (±W);
+    // con menos celdas hay que corregir cada par (una misma ave puede estar cerca por dos imágenes).
+    const minImg = toro && (cols < 3 || rows < 3 || capas < 3);
+
+    let sumNear = 0, cntNear = 0, sumVec = 0;
+
+    /* ---- 2. Aceleraciones (todas con las posiciones/velocidades actuales) ---- */
+    for (let i = 0; i < n; i++) {
+      const xi = px[i], yi = py[i], zi = pz[i], vxi = vx[i], vyi = vy[i], vzi = vz[i];
+      const v2 = vxi * vxi + vyi * vyi + vzi * vzi;
+      const ci = cellIdx[i]; const cx = ci % cols; const tq = (ci - cx) / cols; const cy = tq % rows; const cz = (tq - cy) / rows;
+      let sepX = 0, sepY = 0, sepZ = 0, aliX = 0, aliY = 0, aliZ = 0, cohX = 0, cohY = 0, cohZ = 0, cnt = 0, nAli = 0, nSep = 0, kk = 0;
+      let nearD2 = Infinity;
+
+      for (let oz = -1; oz <= dzTo; oz++) {
+        let czz = cz + oz, offZ = 0;
+        if (toro) { if (czz < 0) { czz += capas; offZ = -WZ; } else if (czz >= capas) { czz -= capas; offZ = WZ; } }
+        else if (czz < 0 || czz >= capas) continue;
+        for (let oy = -1; oy <= dyTo; oy++) {
+          let cyy = cy + oy, offY = 0;
+          if (toro) { if (cyy < 0) { cyy += rows; offY = -WY; } else if (cyy >= rows) { cyy -= rows; offY = WY; } }
+          else if (cyy < 0 || cyy >= rows) continue;
+          for (let ox = -1; ox <= dxTo; ox++) {
+            let cxx = cx + ox, offX = 0;
+            if (toro) { if (cxx < 0) { cxx += cols; offX = -WX; } else if (cxx >= cols) { cxx -= cols; offX = WX; } }
+            else if (cxx < 0 || cxx >= cols) continue;
+            const c = (czz * rows + cyy) * cols + cxx;
+            const fin = cellStart[c + 1];
+            for (let e = cellStart[c]; e < fin; e++) {
+              const j = entries[e];
+              if (j === i) continue;
+              let dx = px[j] + offX - xi, dy = py[j] + offY - yi, dz = pz[j] + offZ - zi;
+              if (minImg) {
+                if (dx > hx) dx -= WX; else if (dx < -hx) dx += WX;
+                if (dy > hy) dy -= WY; else if (dy < -hy) dy += WY;
+                if (dz > hz) dz -= WZ; else if (dz < -hz) dz += WZ;
+              }
+              const d2 = dx * dx + dy * dy + dz * dz;
+              if (d2 > R2) continue;
+              if (d2 < nearD2) nearD2 = d2;
+              if (doGroups) this._union(i, j);
+              // Campo de visión (cono): ángulo entre v_i y (p_j − p_i) menor que FOV/2 (sin sqrt)
+              if (fovActivo) {
+                const dot = vxi * dx + vyi * dy + vzi * dz;
+                const lim = cosHalf2 * v2 * d2;
+                if (cosHalfPos) { if (dot < 0 || dot * dot < lim) continue; }
+                else if (dot < 0 && dot * dot > lim) continue;
+              }
+              // Separación: siempre métrica, peso ∝ 1/d. Con κ > 0 se mide en una métrica «achatada»
+              // (eje vertical comprimido por 1 − κ): dos aves apiladas se repelen en horizontal.
+              if (d2 < sep2) {
+                const dzk = dz * unoMenosKappa;
+                const de2 = dx * dx + dy * dy + dzk * dzk;
+                if (de2 > 1e-4) { const inv = 1 / de2; sepX -= dx * inv; sepY -= dy * inv; sepZ -= dzk * inv; }
+                else { sepX += Math.random() - 0.5; sepY += Math.random() - 0.5; sepZ += (Math.random() - 0.5) * unoMenosKappa; }
+                nSep++;
+              }
+              if (topo) {
+                // Inserción ordenada en la lista de los k más cercanos vistos hasta ahora
+                if (kk < k || d2 < kD2[kk - 1]) {
+                  let t = kk < k ? kk : k - 1;
+                  while (t > 0 && kD2[t - 1] > d2) { kD2[t] = kD2[t - 1]; kIdx[t] = kIdx[t - 1]; t--; }
+                  kD2[t] = d2; kIdx[t] = j;
+                  if (kk < k) kk++;
+                }
+              } else {
+                // Zona de atracción (cohesión): todos los vecinos percibidos; zona de orientación (alineación): d < R_ali
+                cohX += dx; cohY += dy; cohZ += dz; cnt++;
+                if (d2 <= rAli2) { aliX += vx[j]; aliY += vy[j]; aliZ += vz[j]; nAli++; }
+                if (i === focal) focalVec[this.focalCount++] = j;
+              }
+            }
+          }
+        }
+      }
+
+      // Modo topológico: los k más cercanos son el conjunto de vecinos; la alineación exige además d < R_ali
+      if (topo && kk > 0) {
+        for (let t = 0; t < kk; t++) {
+          const j = kIdx[t];
+          let dx = px[j] - xi, dy = py[j] - yi, dz = pz[j] - zi;
+          if (toro) {
+            if (dx > hx) dx -= WX; else if (dx < -hx) dx += WX;
+            if (dy > hy) dy -= WY; else if (dy < -hy) dy += WY;
+            if (dz > hz) dz -= WZ; else if (dz < -hz) dz += WZ;
+          }
+          cohX += dx; cohY += dy; cohZ += dz;
+          if (kD2[t] <= rAli2) { aliX += vx[j]; aliY += vy[j]; aliZ += vz[j]; nAli++; }
+          if (i === focal) focalVec[this.focalCount++] = j;
+        }
+        cnt = kk;
+      }
+
+      /* ---- Dirección (Reynolds): steer = desired − velocity, acotado por fmax ---- */
+      this._vxi = vxi; this._vyi = vyi; this._vzi = vzi; this._ax = 0; this._ay = 0; this._az = 0;
+      if (nSep > 0) this._steer(sepX, sepY, sepZ, wSep);
+      if (nAli > 0) { const inv = 1 / nAli; this._steer(aliX * inv, aliY * inv, aliZ * inv, wAli); }   // alineación: velocidad media en la zona de orientación
+      if (cnt > 0) {
+        const inv = 1 / cnt;
+        this._steer(cohX * inv, cohY * inv, cohZ * inv, wCoh);   // cohesión: centro de masa LOCAL
+        if (resorteZ > 0) {
+          // Anisotropía vertical: igualar la altura media de las vecinas (resorte vertical local, acotado)
+          let fz = cohZ * inv * resorteZ;
+          if (fz > limResorteZ) fz = limResorteZ; else if (fz < -limResorteZ) fz = -limResorteZ;
+          this._az += fz;
+        }
+      }
+      // Individuos informados (Couzin et al. 2005): preferencia direccional con peso ω
+      if (informado[i] === 1 && wInf > 0) {
+        if (seguirCursor) {
+          let dx = cX - xi, dy = cY - yi, dz = cZ - zi;
+          if (toro) { if (dx > hx) dx -= WX; else if (dx < -hx) dx += WX; if (dy > hy) dy -= WY; else if (dy < -hy) dy += WY; if (dz > hz) dz -= WZ; else if (dz < -hz) dz += WZ; }
+          this._steer(dx, dy, dz, wInf);
+        } else this._steer(this.gx, this.gy, this.gz, wInf);
+      }
+      // Cursor como atractor (todas las aves)
+      if (modoAtraer) {
+        let dx = cX - xi, dy = cY - yi, dz = cZ - zi;
+        if (toro) { if (dx > hx) dx -= WX; else if (dx < -hx) dx += WX; if (dy > hy) dy -= WY; else if (dy < -hy) dy += WY; if (dz > hz) dz -= WZ; else if (dz < -hz) dz += WZ; }
+        this._steer(dx, dy, dz, this.wAtr);
+      }
+      // Amenazas (cursor depredador, marcador fijo, halcón): huir de cada una dentro del radio de miedo
+      for (let a = 0; a < nAm; a++) {
+        let dx = xi - amX[a], dy = yi - amY[a], dz = zi - amZ[a];
+        if (toro) { if (dx > hx) dx -= WX; else if (dx < -hx) dx += WX; if (dy > hy) dy -= WY; else if (dy < -hy) dy += WY; if (dz > hz) dz -= WZ; else if (dz < -hz) dz += WZ; }
+        if (dx * dx + dy * dy + dz * dz < miedo2) this._steer(dx, dy, dz, wMiedo);
+      }
+      // Dormidero (StarDisplay): fuera del radio, steer horizontal hacia el centro con rampa suave 0 → 1 entre R_dorm y 2·R_dorm.
+      // Usa el desplazamiento directo al centro (también en el toro), acotado a F_max.
+      if (wDorm > 0) {
+        const dxr = cDx - xi, dyr = cDy - yi, r2 = dxr * dxr + dyr * dyr;
+        if (r2 > rDorm2) {
+          const r = Math.sqrt(r2);
+          let t = (r - rDorm) * invRDorm; if (t > 1) t = 1;
+          t = t * t * (3 - 2 * t);
+          const q = vmaxD / r;
+          let sx = dxr * q - vxi, sy = dyr * q - vyi;
+          const s2 = sx * sx + sy * sy;
+          if (s2 > fmax2D) { const f = fmaxD / Math.sqrt(s2); sx *= f; sy *= f; }
+          const w = wDorm * t;
+          this._ax += sx * w; this._ay += sy * w;
+        }
+      }
+      // Altura preferida: v_z deseada proporcional al desnivel (acotada a ±v_max), steer vertical acotado a ±F_max
+      if (wAlt > 0) {
+        let vzDes = (zPref - zi) * ALTURA_GANANCIA;
+        if (vzDes > vmaxD) vzDes = vmaxD; else if (vzDes < -vmaxD) vzDes = -vmaxD;
+        let fz = vzDes - vzi;
+        if (fz > fmaxD) fz = fmaxD; else if (fz < -fmaxD) fz = -fmaxD;
+        this._az += fz * wAlt;
+      }
+      // Bordes con rebote suave: empuje hacia adentro creciente con la penetración en el margen (6 caras)
+      if (!toro) {
+        if (xi < margen) this._ax += fb * (1.25 - xi / margen);
+        else if (xi > WX - margen) this._ax -= fb * (1.25 - (WX - xi) / margen);
+        if (yi < margen) this._ay += fb * (1.25 - yi / margen);
+        else if (yi > WY - margen) this._ay -= fb * (1.25 - (WY - yi) / margen);
+        if (zi < margen) this._az += fb * (1.25 - zi / margen);
+        else if (zi > WZ - margen) this._az -= fb * (1.25 - (WZ - zi) / margen);
+      }
+      ax[i] = this._ax; ay[i] = this._ay; az[i] = this._az;
+
+      if (nearD2 < Infinity) { sumNear += Math.sqrt(nearD2); cntNear++; }
+      sumVec += cnt;
+    }
+
+    /* ---- 3. Integración sincrónica + amortiguación vertical + ruido + límites + bordes ---- */
+    const dt = this.dt, eta = this.eta, vmax = this.vmax, vmin = this.vmin, vmax2 = this.vmax2, vmin2 = this.vmin2;
+    const kd = this.kdVertical;
+    const kxT = TAU / WX, kyT = TAU / WY, kzT = TAU / WZ;
+    // Velocidad de crucero: |v| ← |v| + λ·(v0_i − |v|)·dt, con v0_i = v_crucero·(1 + σ·ξ_i)
+    const relaxDt = Math.min(1, this.relax * dt), velCrucero = this.velCrucero, sigmaV = this.sigmaV, multVel = this.multVel;
+    let sx = 0, sy = 0, sz = 0, sumV = 0;
+    let mx = 0, my = 0, mz = 0, mcx = 0, msx = 0, mcy = 0, msy = 0, mcz = 0, msz = 0;
+    for (let i = 0; i < n; i++) {
+      let nvx = vx[i] + ax[i] * dt, nvy = vy[i] + ay[i] * dt, nvz = vz[i] + az[i] * dt;
+      if (kd > 0) nvz *= (1 - kd);   // anisotropía vertical: la bandada tiende a deslizarse en horizontal
+      let s2 = nvx * nvx + nvy * nvy + nvz * nvz;
+      if (eta > 0 && s2 > 1e-12) {
+        // Ruido (Vicsek et al. 1995) en 3D: rotar la velocidad un ángulo U(−η/2, η/2) alrededor de un eje
+        // aleatorio perpendicular a ella. Se conserva la rapidez y no hay dirección privilegiada.
+        const sp = Math.sqrt(s2), inv = 1 / sp;
+        const fx = nvx * inv, fy = nvy * inv, fz = nvz * inv;
+        let e1x, e1y, e1z;
+        if (Math.abs(fx) < 0.9) { e1x = 0; e1y = -fz; e1z = fy; } else { e1x = fz; e1y = 0; e1z = -fx; }
+        const l1 = 1 / Math.sqrt(e1x * e1x + e1y * e1y + e1z * e1z);
+        e1x *= l1; e1y *= l1; e1z *= l1;
+        const e2x = fy * e1z - fz * e1y, e2y = fz * e1x - fx * e1z, e2z = fx * e1y - fy * e1x;
+        const psi = Math.random() * TAU, cp = Math.cos(psi), spp = Math.sin(psi);
+        const ux = e1x * cp + e2x * spp, uy = e1y * cp + e2y * spp, uz = e1z * cp + e2z * spp;
+        const a = (Math.random() - 0.5) * eta, ca = Math.cos(a), sa = Math.sin(a);
+        nvx = (fx * ca + ux * sa) * sp; nvy = (fy * ca + uy * sa) * sp; nvz = (fz * ca + uz * sa) * sp;
+        s2 = nvx * nvx + nvy * nvy + nvz * nvz;
+      }
+      if (!(s2 > 1e-12)) {  // velocidad nula o NaN: rumbo aleatorio
+        const z = Math.random() * 2 - 1, r = Math.sqrt(Math.max(0, 1 - z * z)), a = Math.random() * TAU, s = Math.max(vmin, 0.001);
+        nvx = r * Math.cos(a) * s; nvy = r * Math.sin(a) * s; nvz = z * s; s2 = s * s;
+      }
+      if (relaxDt > 0) {
+        // Relajación hacia la velocidad de crucero individual (StarDisplay), antes del recorte a [v_min, v_max]
+        const sp = Math.sqrt(s2), v0 = velCrucero * (1 + sigmaV * multVel[i]);
+        const ns = sp + relaxDt * (v0 - sp);
+        if (ns > 1e-6) { const f = ns / sp; nvx *= f; nvy *= f; nvz *= f; s2 = ns * ns; }
+      }
+      if (s2 > vmax2) { const f = vmax / Math.sqrt(s2); nvx *= f; nvy *= f; nvz *= f; s2 = vmax2; }
+      else if (s2 < vmin2) { const f = vmin / Math.sqrt(s2); nvx *= f; nvy *= f; nvz *= f; s2 = vmin2; }
+      let x = px[i] + nvx * dt, y = py[i] + nvy * dt, z = pz[i] + nvz * dt;
+      if (toro) {
+        if (x < 0 || x >= WX) x = ((x % WX) + WX) % WX;
+        if (y < 0 || y >= WY) y = ((y % WY) + WY) % WY;
+        if (z < 0 || z >= WZ) z = ((z % WZ) + WZ) % WZ;
+        mcx += Math.cos(x * kxT); msx += Math.sin(x * kxT);
+        mcy += Math.cos(y * kyT); msy += Math.sin(y * kyT);
+        mcz += Math.cos(z * kzT); msz += Math.sin(z * kzT);
+      } else {
+        if (x < 0) { x = 0; if (nvx < 0) nvx = -nvx; } else if (x > WX) { x = WX; if (nvx > 0) nvx = -nvx; }
+        if (y < 0) { y = 0; if (nvy < 0) nvy = -nvy; } else if (y > WY) { y = WY; if (nvy > 0) nvy = -nvy; }
+        if (z < 0) { z = 0; if (nvz < 0) nvz = -nvz; } else if (z > WZ) { z = WZ; if (nvz > 0) nvz = -nvz; }
+        mx += x; my += y; mz += z;
+      }
+      vx[i] = nvx; vy[i] = nvy; vz[i] = nvz; px[i] = x; py[i] = y; pz[i] = z;
+      const sp = Math.sqrt(s2), inv = 1 / sp;
+      sumV += sp;
+      sx += nvx * inv; sy += nvy * inv; sz += nvz * inv;
+    }
+
+    /* ---- 4. Métricas ---- */
+    this.phi = Math.sqrt(sx * sx + sy * sy + sz * sz) / n;
+    this.velMedia = sumV / n;
+    this.distMediaVecino = cntNear > 0 ? sumNear / cntNear : 0;
+    this.vecinosPromedio = sumVec / n;
+    if (toro) {
+      // Centro de masa toroidal: media circular por eje
+      let cxm = Math.atan2(msx, mcx) / kxT; if (cxm < 0) cxm += WX;
+      let cym = Math.atan2(msy, mcy) / kyT; if (cym < 0) cym += WY;
+      let czm = Math.atan2(msz, mcz) / kzT; if (czm < 0) czm += WZ;
+      this.comX = cxm; this.comY = cym; this.comZ = czm;
+    } else {
+      this.comX = mx / n; this.comY = my / n; this.comZ = mz / n;
+    }
+    this.momentoAngular = this._momentoAngular();
+    if (doGroups) {
+      let g = 0; const par = this.parent, tam = this.tamGrupo;
+      for (let i = 0; i < n; i++) { if (par[i] === i) g++; tam[i] = 0; }
+      let mayor = 0;
+      for (let i = 0; i < n; i++) { const r = this._find(i); if (++tam[r] > mayor) mayor = tam[r]; }
+      this.grupos = g;
+      this.fraccionMayor = mayor / n;
+      this._forma();
+    }
+    this.pasos++;
+  }
+
+  /* Momento angular normalizado (Couzin et al. 2002): m = |Σ_i r̂_ic × v̂_i| / N, con r_ic el desplazamiento
+     (imagen mínima en modo toroidal) de cada ave respecto del centro de masa. ≈1: todas giran en el mismo
+     sentido alrededor del centro (toro); ≈0: sin rotación colectiva. */
+  _momentoAngular() {
+    const n = this.n; if (n === 0) return 0;
+    const px = this.px, py = this.py, pz = this.pz, vx = this.vx, vy = this.vy, vz = this.vz, toro = this.toro;
+    const WX = this.wx, WY = this.wy, WZ = this.wz, hx = WX * 0.5, hy = WY * 0.5, hz = WZ * 0.5;
+    const cx = this.comX, cy = this.comY, cz = this.comZ;
+    let Lx = 0, Ly = 0, Lz = 0;
+    for (let i = 0; i < n; i++) {
+      let dx = px[i] - cx, dy = py[i] - cy, dz = pz[i] - cz;
+      if (toro) {
+        if (dx > hx) dx -= WX; else if (dx < -hx) dx += WX;
+        if (dy > hy) dy -= WY; else if (dy < -hy) dy += WY;
+        if (dz > hz) dz -= WZ; else if (dz < -hz) dz += WZ;
+      }
+      const r2 = dx * dx + dy * dy + dz * dz, ux = vx[i], uy = vy[i], uz = vz[i], v2 = ux * ux + uy * uy + uz * uz;
+      if (r2 < 1e-12 || v2 < 1e-12) continue;
+      const q = 1 / Math.sqrt(r2 * v2);
+      Lx += (dy * uz - dz * uy) * q; Ly += (dz * ux - dx * uz) * q; Lz += (dx * uy - dy * ux) * q;
+    }
+    return Math.sqrt(Lx * Lx + Ly * Ly + Lz * Lz) / n;
+  }
+
+  /* Forma de la bandada: covarianza 3×3 de posiciones (imagen mínima alrededor del centro de masa en
+     modo toroidal) → autovalores → proporciones de los ejes principales I₁ : I₂ : I₃ y etiqueta. */
+  _forma() {
+    const n = this.n;
+    if (n < 4) { this.formaValida = false; this.formaEtiqueta = '—'; return; }
+    const px = this.px, py = this.py, pz = this.pz, toro = this.toro;
+    const WX = this.wx, WY = this.wy, WZ = this.wz, hx = WX * 0.5, hy = WY * 0.5, hz = WZ * 0.5;
+    const cx = this.comX, cy = this.comY, cz = this.comZ;
+    let sxx = 0, sxy = 0, sxz = 0, syy = 0, syz = 0, szz = 0;
+    for (let i = 0; i < n; i++) {
+      let dx = px[i] - cx, dy = py[i] - cy, dz = pz[i] - cz;
+      if (toro) {
+        if (dx > hx) dx -= WX; else if (dx < -hx) dx += WX;
+        if (dy > hy) dy -= WY; else if (dy < -hy) dy += WY;
+        if (dz > hz) dz -= WZ; else if (dz < -hz) dz += WZ;
+      }
+      sxx += dx * dx; sxy += dx * dy; sxz += dx * dz; syy += dy * dy; syz += dy * dz; szz += dz * dz;
+    }
+    const inv = 1 / n, A = this._A;
+    A[0] = sxx * inv; A[1] = sxy * inv; A[2] = sxz * inv;
+    A[3] = A[1];      A[4] = syy * inv; A[5] = syz * inv;
+    A[6] = A[2];      A[7] = A[5];      A[8] = szz * inv;
+    const lam = autovaloresSim3(A, this._lam);
+    const L = this.formaL;
+    L[0] = Math.sqrt(Math.max(0, lam[0])); L[1] = Math.sqrt(Math.max(0, lam[1])); L[2] = Math.sqrt(Math.max(0, lam[2]));
+    if (!(L[0] > 1e-9)) { this.formaValida = false; this.formaEtiqueta = '—'; return; }
+    this.formaR2 = L[1] / L[0]; this.formaR3 = L[2] / L[0];
+    // esférica: los tres ejes comparables; discoidal: el eje menor es mucho menor que el intermedio (lámina o cinta);
+    // alargada: los dos ejes menores son comparables entre sí y menores que el mayor (cigarro / varilla).
+    this.formaEtiqueta = this.formaR3 >= 0.6 ? 'esférica' : (this.formaR3 <= 0.5 * this.formaR2 ? 'discoidal' : 'alargada');
+    this.formaValida = true;
+  }
+}
+
+/* =====================================================================
+   Cámara orbital en perspectiva (matemática compartida por ambos renderizadores)
+   ===================================================================== */
+class Camara {
+  constructor() {
+    this.yaw = -70 * DEG; this.pitch = 25 * DEG; this.dist = 1000;
+    this.tx = 400; this.ty = 250; this.tz = 250;
+    this.fov = 55; this.aspect = 1; this.tanH = 1; this.focalPx = 1; this.W = 1; this.H = 1;
+    this.near = 1; this.far = 5000; this.L = 1000; this.minDist = 10; this.maxDist = 10000;
+    this.nieblaCerca = 0; this.nieblaLejos = 1;
+    this.eye = new Float64Array(3); this.f = new Float64Array(3); this.r = new Float64Array(3); this.u = new Float64Array(3);
+    this.view = new Float32Array(16); this.proj = new Float32Array(16); this.viewProj = new Float32Array(16);
+  }
+  /* Objetivo = centro de la caja; distancia que la encuadra completa. Conserva yaw/pitch. */
+  encuadrar(wx, wy, wz) {
+    this.tx = wx * 0.5; this.ty = wy * 0.5; this.tz = wz * 0.5;
+    this.L = Math.sqrt(wx * wx + wy * wy + wz * wz);
+    this.minDist = this.L * 0.03; this.maxDist = this.L * 6;
+    this.dist = clamp(0.5 * this.L / Math.tan(this.fov * 0.5 * DEG) * 1.05, this.minDist, this.maxDist);
+  }
+  reiniciar(wx, wy, wz) { this.yaw = -70 * DEG; this.pitch = 25 * DEG; this.encuadrar(wx, wy, wz); }
+  orbitar(dx, dy) {
+    this.yaw -= dx * 0.005;
+    this.pitch = clamp(this.pitch + dy * 0.005, -89 * DEG, 89 * DEG);
+  }
+  zoom(factor) { this.dist = clamp(this.dist * factor, this.minDist, this.maxDist); }
+  paneo(dx, dy) {
+    const k = 2 * this.dist * this.tanH / Math.max(1, this.H);   // unidades del mundo por píxel en el plano del objetivo
+    this.tx += (-this.r[0] * dx + this.u[0] * dy) * k;
+    this.ty += (-this.r[1] * dx + this.u[1] * dy) * k;
+    this.tz += (-this.r[2] * dx + this.u[2] * dy) * k;
+    const lim = this.L;
+    this.tx = clamp(this.tx, -lim, lim * 2); this.ty = clamp(this.ty, -lim, lim * 2); this.tz = clamp(this.tz, -lim, lim * 2);
+  }
+  /* Recalcula base, matrices y rango de niebla para el tamaño de lienzo (px CSS) y FOV dados. */
+  actualizar(W, H, fovDeg) {
+    this.W = Math.max(1, W); this.H = Math.max(1, H);
+    this.fov = clamp(fovDeg, 10, 150);
+    this.aspect = this.W / this.H;
+    this.tanH = Math.tan(this.fov * 0.5 * DEG);
+    this.focalPx = (this.H * 0.5) / this.tanH;
+    const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch), cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
+    const eye = this.eye, f = this.f, r = this.r, u = this.u;
+    f[0] = -cp * cy; f[1] = -cp * sy; f[2] = -sp;                 // mira hacia el objetivo
+    eye[0] = this.tx - f[0] * this.dist; eye[1] = this.ty - f[1] * this.dist; eye[2] = this.tz - f[2] * this.dist;
+    // r = f × up (up = +Z), u = r × f
+    let rx = f[1] * 1 - f[2] * 0, ry = f[2] * 0 - f[0] * 1, rz = 0;
+    let lr = Math.sqrt(rx * rx + ry * ry + rz * rz);
+    if (lr < 1e-9) { rx = 1; ry = 0; rz = 0; lr = 1; }            // mirando exactamente vertical (no ocurre: pitch < 89°)
+    r[0] = rx / lr; r[1] = ry / lr; r[2] = rz / lr;
+    u[0] = r[1] * f[2] - r[2] * f[1]; u[1] = r[2] * f[0] - r[0] * f[2]; u[2] = r[0] * f[1] - r[1] * f[0];
+    this.near = Math.max(0.5, this.dist * 0.01);
+    this.far = this.dist + this.L * 2.5;
+    this.nieblaCerca = Math.max(this.near, this.dist - 0.35 * this.L);
+    this.nieblaLejos = this.dist + 0.9 * this.L;
+    // Matriz de vista (columnas), estilo lookAt: filas r, u, −f
+    const v = this.view;
+    v[0] = r[0]; v[4] = r[1]; v[8] = r[2];  v[12] = -(r[0] * eye[0] + r[1] * eye[1] + r[2] * eye[2]);
+    v[1] = u[0]; v[5] = u[1]; v[9] = u[2];  v[13] = -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]);
+    v[2] = -f[0]; v[6] = -f[1]; v[10] = -f[2]; v[14] = (f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2]);
+    v[3] = 0; v[7] = 0; v[11] = 0; v[15] = 1;
+    // Proyección en perspectiva
+    const P = this.proj, fy = 1 / this.tanH, nf = 1 / (this.near - this.far);
+    P.fill(0);
+    P[0] = fy / this.aspect; P[5] = fy; P[10] = (this.far + this.near) * nf; P[11] = -1; P[14] = 2 * this.far * this.near * nf;
+    // viewProj = proj · view
+    const o = this.viewProj;
+    for (let c = 0; c < 4; c++) {
+      for (let rr = 0; rr < 4; rr++) {
+        o[c * 4 + rr] = P[rr] * v[c * 4] + P[4 + rr] * v[c * 4 + 1] + P[8 + rr] * v[c * 4 + 2] + P[12 + rr] * v[c * 4 + 3];
+      }
+    }
+  }
+  /* Proyecta un punto del mundo a píxeles CSS: out = [sx, sy, profundidad]. false si queda detrás. */
+  proyectar(x, y, z, out) {
+    const eye = this.eye, f = this.f, r = this.r, u = this.u;
+    const dx = x - eye[0], dy = y - eye[1], dz = z - eye[2];
+    const zv = dx * f[0] + dy * f[1] + dz * f[2];
+    if (!(zv > this.near)) return false;
+    const inv = this.focalPx / zv;
+    out[0] = this.W * 0.5 + (dx * r[0] + dy * r[1] + dz * r[2]) * inv;
+    out[1] = this.H * 0.5 - (dx * u[0] + dy * u[1] + dz * u[2]) * inv;
+    out[2] = zv;
+    return true;
+  }
+  /* Punto 3D bajo el cursor: intersección del rayo con el plano que pasa por el objetivo ⊥ a la vista. */
+  unproyectar(mx, my, out) {
+    const nx = 2 * mx / this.W - 1, ny = 1 - 2 * my / this.H;
+    const kx = this.dist * this.tanH * this.aspect * nx, ky = this.dist * this.tanH * ny;
+    out[0] = this.tx + this.r[0] * kx + this.u[0] * ky;
+    out[1] = this.ty + this.r[1] * kx + this.u[1] * ky;
+    out[2] = this.tz + this.r[2] * kx + this.u[2] * ky;
+    return out;
+  }
+}
+
+/* Historia corta de posiciones para las estelas (anillo de K muestras por ave). */
+class Estelas {
+  constructor(maxN, K) {
+    this.maxN = maxN; this.K = K;
+    this.buf = new Float32Array(maxN * K * 3);
+    this.head = -1; this.len = 0; this.nReg = -1;
+  }
+  reiniciar() { this.head = -1; this.len = 0; }
+  registrar(sim) {
+    if (sim.n !== this.nReg) { this.reiniciar(); this.nReg = sim.n; }
+    this.head = (this.head + 1) % this.K;
+    if (this.len < this.K) this.len++;
+    const o = this.head * this.maxN * 3, n = sim.n, b = this.buf, px = sim.px, py = sim.py, pz = sim.pz;
+    for (let i = 0; i < n; i++) { const q = o + i * 3; b[q] = px[i]; b[q + 1] = py[i]; b[q + 2] = pz[i]; }
+  }
+  /* Desplazamiento base en buf de la muestra de edad `edad` (0 = más reciente). */
+  base(edad) { return (((this.head - edad) % this.K) + this.K) % this.K * this.maxN * 3; }
+}
+
+/* =====================================================================
+   Colores: paletas compartidas (RGB en [0,1] para WebGL; cadenas con niebla para Canvas 2D)
+   ===================================================================== */
+const NB = 36, NIVELES_NIEBLA = 8, NIEBLA_MAX = 0.8;
+function hsl2rgb(h, s, l) {
+  h = ((h % 360) + 360) % 360 / 360;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+  const f = t => { t = ((t % 1) + 1) % 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 0.5) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; };
+  return [f(h + 1 / 3), f(h), f(h - 1 / 3)];
+}
+function hex2rgb(hex) { const v = parseInt(hex.slice(1), 16); return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255]; }
+function rgbaStr(c, a) { return 'rgba(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ',' + a + ')'; }
+function rgbStr(c) { return 'rgb(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ')'; }
+
+/* Temas de la escena (los renderizadores leen el tema activo en cada cuadro; cambiarlo no recrea nada).
+   La paleta clara es más oscura para que las aves se lean sobre blanco. */
+const TEMAS = {
+  oscuro: {
+    nombre: 'oscuro', bg: [11 / 255, 15 / 255, 23 / 255],
+    rgbInformado: hex2rgb('#ff9f43'), rgbFocal: hex2rgb('#ffffff'), rgbUniforme: hex2rgb('#7fb3ff'),
+    rgbAcento: hex2rgb('#4cc9f0'), rgbVerde: hex2rgb('#7ee787'), rgbDepredador: hex2rgb('#ff4d4f'), rgbNaranja: hex2rgb('#ff9f43'),
+    caja: [1, 1, 1, 0.16], texto: hex2rgb('#e6edf3'), estela: hex2rgb('#9fb0c3'),
+    rumbo: h => hsl2rgb(h, 0.80, 0.62),
+    velocidad: t => hsl2rgb(215 - 160 * t, 0.85, 0.55 + 0.10 * t),
+    altura: t => hsl2rgb(170 + 160 * t, 0.70, 0.60)
+  },
+  claro: {
+    nombre: 'claro', bg: [246 / 255, 248 / 255, 251 / 255],
+    rgbInformado: hex2rgb('#d9731a'), rgbFocal: hex2rgb('#111111'), rgbUniforme: hex2rgb('#2f6fd6'),
+    rgbAcento: hex2rgb('#0b7aa8'), rgbVerde: hex2rgb('#1f8a3c'), rgbDepredador: hex2rgb('#d0021b'), rgbNaranja: hex2rgb('#d9731a'),
+    caja: [0, 0, 0, 0.25], texto: hex2rgb('#14202e'), estela: hex2rgb('#4b5c70'),
+    rumbo: h => hsl2rgb(h, 0.70, 0.42),
+    velocidad: t => hsl2rgb(215 - 160 * t, 0.80, 0.38 + 0.08 * t),
+    altura: t => hsl2rgb(170 + 160 * t, 0.65, 0.40)
+  }
+};
+/* Cadenas CSS derivadas (precalculadas: nada de concatenar por cuadro) */
+for (const T of Object.values(TEMAS)) {
+  T.css = {
+    fondo: rgbStr(T.bg),
+    caja: rgbaStr(T.caja, T.caja[3]),
+    percepcion: rgbaStr(T.rgbAcento, 0.7),
+    separacion: rgbaStr(T.rgbDepredador, 0.8),
+    vecinos: rgbaStr(T.rgbVerde, 0.75),
+    texto: rgbaStr(T.texto, 0.9),
+    grilla: rgbaStr(T.texto, 0.10),
+    contorno: rgbStr(T.texto),
+    phi: rgbStr(T.rgbAcento),
+    m: rgbStr(T.rgbNaranja),
+    dormidero: rgbaStr(T.rgbVerde, 0.55),
+    dormideroSuelo: rgbaStr(T.rgbVerde, 0.22)
+  };
+}
+/* Índices de color: 0..NB−1 = cubeta de la paleta del modo; NB = informada; NB+1 = focal.
+   PALETAS[tema][modo] = { rgb: Float32Array (WebGL), str: cadenas con niebla hacia el fondo del tema (Canvas 2D) } */
+const PALETAS = {};
+for (const T of Object.values(TEMAS)) {
+  const modos = {
+    rumbo: i => T.rumbo(i * 360 / NB),
+    velocidad: i => T.velocidad(i / (NB - 1)),
+    altura: i => T.altura(i / (NB - 1)),
+    uniforme: () => T.rgbUniforme
+  };
+  const pal = {};
+  for (const modo of Object.keys(modos)) {
+    const rgb = new Float32Array((NB + 2) * 3), str = new Array(NB + 2);
+    for (let b = 0; b < NB + 2; b++) {
+      const c = b === NB ? T.rgbInformado : (b === NB + 1 ? T.rgbFocal : modos[modo](b));
+      rgb[b * 3] = c[0]; rgb[b * 3 + 1] = c[1]; rgb[b * 3 + 2] = c[2];
+      const niveles = new Array(NIVELES_NIEBLA);
+      for (let f = 0; f < NIVELES_NIEBLA; f++) {
+        const t = f / (NIVELES_NIEBLA - 1) * NIEBLA_MAX;
+        const r = Math.round((c[0] * (1 - t) + T.bg[0] * t) * 255), g = Math.round((c[1] * (1 - t) + T.bg[1] * t) * 255), bb = Math.round((c[2] * (1 - t) + T.bg[2] * t) * 255);
+        niveles[f] = 'rgb(' + r + ',' + g + ',' + bb + ')';
+      }
+      str[b] = niveles;
+    }
+    pal[modo] = { rgb, str };
+  }
+  PALETAS[T.nombre] = pal;
+}
+
+/* =====================================================================
+   Renderizador principal: WebGL2 escrito a mano (instancias, iluminación plana, niebla)
+   ===================================================================== */
+const VS_AVES = `#version 300 es
+precision highp float;
+in vec3 aPos;
+in vec3 aNorm;
+in vec3 iPos;
+in vec3 iVel;
+in vec3 iAcc;
+in vec3 iCol;
+uniform mat4 uViewProj;
+uniform vec3 uEye;
+uniform vec3 uLuz;
+uniform float uTam;
+uniform float uAlabeo;
+uniform vec2 uNiebla;
+out vec3 vCol;
+out float vNiebla;
+void main() {
+  float lv = length(iVel);
+  vec3 f = (lv > 0.000001) ? (iVel / lv) : vec3(1.0, 0.0, 0.0);
+  vec3 arriba = (abs(f.z) > 0.98) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0);
+  vec3 s = normalize(cross(arriba, f));
+  vec3 u = cross(f, s);
+  if (uAlabeo > 0.0) {
+    float lat = dot(iAcc, s);
+    u = normalize(u + s * clamp(lat * uAlabeo, -1.2, 1.2));
+    s = cross(u, f);
+  }
+  vec3 mundo = iPos + (f * aPos.x + s * aPos.y + u * aPos.z) * uTam;
+  vec3 nrm = f * aNorm.x + s * aNorm.y + u * aNorm.z;
+  float dif = abs(dot(nrm, uLuz));
+  vCol = iCol * (0.45 + 0.55 * dif);
+  float d = distance(mundo, uEye);
+  vNiebla = clamp((d - uNiebla.x) / max(uNiebla.y - uNiebla.x, 0.001), 0.0, 1.0);
+  gl_Position = uViewProj * vec4(mundo, 1.0);
+}
+`;
+const VS_SOLIDO = `#version 300 es
+precision highp float;
+in vec3 aPos;
+in vec3 aNorm;
+uniform mat4 uViewProj;
+uniform vec3 uEye;
+uniform vec3 uLuz;
+uniform vec3 uOrigen;
+uniform float uEscala;
+uniform vec3 uColor;
+uniform vec2 uNiebla;
+out vec3 vCol;
+out float vNiebla;
+void main() {
+  vec3 mundo = uOrigen + aPos * uEscala;
+  float dif = abs(dot(aNorm, uLuz));
+  vCol = uColor * (0.5 + 0.5 * dif);
+  float d = distance(mundo, uEye);
+  vNiebla = clamp((d - uNiebla.x) / max(uNiebla.y - uNiebla.x, 0.001), 0.0, 1.0);
+  gl_Position = uViewProj * vec4(mundo, 1.0);
+}
+`;
+const FS_SOMBREADO = `#version 300 es
+precision highp float;
+in vec3 vCol;
+in float vNiebla;
+uniform vec3 uColNiebla;
+out vec4 fragColor;
+void main() {
+  fragColor = vec4(mix(vCol, uColNiebla, vNiebla * 0.85), 1.0);
+}
+`;
+const VS_LINEAS = `#version 300 es
+precision highp float;
+in vec3 aPos;
+in vec4 aCol;
+uniform mat4 uViewProj;
+uniform vec3 uEye;
+uniform vec2 uNiebla;
+uniform vec3 uColNiebla;
+out vec4 vCol4;
+void main() {
+  float d = distance(aPos, uEye);
+  float f = clamp((d - uNiebla.x) / max(uNiebla.y - uNiebla.x, 0.001), 0.0, 1.0);
+  vCol4 = vec4(mix(aCol.rgb, uColNiebla, f * 0.7), aCol.a);
+  gl_Position = uViewProj * vec4(aPos, 1.0);
+}
+`;
+const FS_LINEAS = `#version 300 es
+precision highp float;
+in vec4 vCol4;
+out vec4 fragColor;
+void main() {
+  fragColor = vCol4;
+}
+`;
+
+/* Malla del ave: pirámide alargada de base rombo (nariz en +X, alas en ±Y): 6 triángulos, normales planas. */
+function mallaAve() {
+  const A = [1.0, 0, 0], L = [-0.6, 0.55, 0], R = [-0.6, -0.55, 0], T = [-0.55, 0, 0.2], B = [-0.5, 0, -0.14];
+  const tris = [[A, L, T], [A, T, R], [A, R, B], [A, B, L], [L, R, T], [L, B, R]];
+  return mallaPlana(tris, [-0.2, 0, 0]);
+}
+/* Octaedro unitario (marcadores). */
+function mallaOctaedro() {
+  const tris = [];
+  for (const sx of [1, -1]) for (const sy of [1, -1]) for (const sz of [1, -1]) tris.push([[sx, 0, 0], [0, sy, 0], [0, 0, sz]]);
+  return mallaPlana(tris, [0, 0, 0]);
+}
+/* Triángulos → arreglo intercalado [pos(3), normal(3)] con normales planas orientadas hacia afuera de `centro`. */
+function mallaPlana(tris, centro) {
+  const out = new Float32Array(tris.length * 18);
+  let o = 0;
+  for (const [a, b, c] of tris) {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    const gx = (a[0] + b[0] + c[0]) / 3 - centro[0], gy = (a[1] + b[1] + c[1]) / 3 - centro[1], gz = (a[2] + b[2] + c[2]) / 3 - centro[2];
+    if (nx * gx + ny * gy + nz * gz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    for (const v of [a, b, c]) { out[o++] = v[0]; out[o++] = v[1]; out[o++] = v[2]; out[o++] = nx; out[o++] = ny; out[o++] = nz; }
+  }
+  return out;
+}
+
+class RenderWebGL2 {
+  constructor(canvas, maxN, K) {
+    this.nombre = 'WebGL2';
+    this.canvas = canvas; this.maxN = maxN; this.K = K; this.perdido = false;
+    const gl = canvas.getContext('webgl2', { antialias: true, alpha: false, depth: true, stencil: false, premultipliedAlpha: false, powerPreference: 'high-performance' });
+    if (!gl) throw new Error('getContext("webgl2") devolvió null');
+    this.gl = gl;
+    canvas.addEventListener('webglcontextlost', (ev) => { if (ev && ev.preventDefault) ev.preventDefault(); this.perdido = true; });
+
+    this.progAves = this._programa(VS_AVES, FS_SOMBREADO);
+    this.progSolido = this._programa(VS_SOLIDO, FS_SOMBREADO);
+    this.progLineas = this._programa(VS_LINEAS, FS_LINEAS);
+    const U = (prog, nombres) => { const o = {}; for (const nm of nombres) o[nm] = gl.getUniformLocation(prog, nm); return o; };
+    this.uAves = U(this.progAves, ['uViewProj', 'uEye', 'uLuz', 'uTam', 'uAlabeo', 'uNiebla', 'uColNiebla']);
+    this.uSolido = U(this.progSolido, ['uViewProj', 'uEye', 'uLuz', 'uOrigen', 'uEscala', 'uColor', 'uNiebla', 'uColNiebla']);
+    this.uLineas = U(this.progLineas, ['uViewProj', 'uEye', 'uNiebla', 'uColNiebla']);
+
+    // Malla del ave + atributos por instancia [pos(3), vel(3), acc(3), col(3)] = 12 floats
+    const ave = mallaAve(); this.nVertAve = ave.length / 6;
+    this.bufAve = this._bufferEstatico(ave);
+    this.inst = new Float32Array(maxN * 12);
+    this.bufInst = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufInst);
+    gl.bufferData(gl.ARRAY_BUFFER, this.inst.byteLength, gl.DYNAMIC_DRAW);
+    this.vaoAves = gl.createVertexArray();
+    gl.bindVertexArray(this.vaoAves);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufAve);
+    this._atributo(this.progAves, 'aPos', 3, 24, 0, 0);
+    this._atributo(this.progAves, 'aNorm', 3, 24, 12, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufInst);
+    this._atributo(this.progAves, 'iPos', 3, 48, 0, 1);
+    this._atributo(this.progAves, 'iVel', 3, 48, 12, 1);
+    this._atributo(this.progAves, 'iAcc', 3, 48, 24, 1);
+    this._atributo(this.progAves, 'iCol', 3, 48, 36, 1);
+    gl.bindVertexArray(null);
+
+    // Octaedro (marcadores)
+    const octa = mallaOctaedro(); this.nVertOcta = octa.length / 6;
+    this.bufOcta = this._bufferEstatico(octa);
+    this.vaoSolido = gl.createVertexArray();
+    gl.bindVertexArray(this.vaoSolido);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufOcta);
+    this._atributo(this.progSolido, 'aPos', 3, 24, 0, 0);
+    this._atributo(this.progSolido, 'aNorm', 3, 24, 12, 0);
+    gl.bindVertexArray(null);
+
+    // Líneas: caja, hasta 6 esferas de alambre, 2 anillos del dormidero, vecinos del ave focal, estelas — [pos(3), rgba(4)] = 7 floats
+    this.maxVertLineas = 24 + 6 * 3 * 48 * 2 + 2 * 48 * 2 + maxN * 2 + maxN * (K - 1) * 2 + 64;
+    this.lineas = new Float32Array(this.maxVertLineas * 7);
+    this.nLineas = 0;
+    this.bufLineas = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufLineas);
+    gl.bufferData(gl.ARRAY_BUFFER, this.lineas.byteLength, gl.DYNAMIC_DRAW);
+    this.vaoLineas = gl.createVertexArray();
+    gl.bindVertexArray(this.vaoLineas);
+    this._atributo(this.progLineas, 'aPos', 3, 28, 0, 0);
+    this._atributo(this.progLineas, 'aCol', 4, 28, 12, 0);
+    gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.disable(gl.CULL_FACE);
+    // El color de fondo (clearColor) y la niebla se toman del tema activo en cada cuadro
+    const ll = Math.hypot(0.35, -0.5, 0.79);
+    this.luz = [0.35 / ll, -0.5 / ll, 0.79 / ll];
+    this._tmp = new Float64Array(3);
+    this.W = 1; this.H = 1;
+    const err = gl.getError();
+    if (err !== gl.NO_ERROR && err !== 0) throw new Error('Error de WebGL durante la inicialización: ' + err);
+  }
+
+  _compilar(tipo, src) {
+    const gl = this.gl;
+    const sh = gl.createShader(tipo);
+    if (!sh) throw new Error('createShader devolvió null');
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(sh);
+      gl.deleteShader(sh);
+      throw new Error('No se pudo compilar el shader: ' + log);
+    }
+    return sh;
+  }
+  _programa(vsSrc, fsSrc) {
+    const gl = this.gl;
+    const vs = this._compilar(gl.VERTEX_SHADER, vsSrc), fs = this._compilar(gl.FRAGMENT_SHADER, fsSrc);
+    const prog = gl.createProgram();
+    if (!prog) throw new Error('createProgram devolvió null');
+    gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.deleteShader(vs); gl.deleteShader(fs);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      const log = gl.getProgramInfoLog(prog);
+      gl.deleteProgram(prog);
+      throw new Error('No se pudo enlazar el programa: ' + log);
+    }
+    return prog;
+  }
+  _bufferEstatico(datos) {
+    const gl = this.gl, b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, datos, gl.STATIC_DRAW);
+    return b;
+  }
+  _atributo(prog, nombre, tam, stride, offset, divisor) {
+    const gl = this.gl, loc = gl.getAttribLocation(prog, nombre);
+    if (loc < 0) return;   // atributo optimizado por el compilador: no hace falta habilitarlo
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, tam, gl.FLOAT, false, stride, offset);
+    gl.vertexAttribDivisor(loc, divisor);
+  }
+
+  resize(w, h, dpr) {
+    const lw = Math.max(1, Math.round(w * dpr)), lh = Math.max(1, Math.round(h * dpr));
+    if (this.canvas.width !== lw) this.canvas.width = lw;
+    if (this.canvas.height !== lh) this.canvas.height = lh;
+    this.W = w; this.H = h;
+    this.gl.viewport(0, 0, lw, lh);
+  }
+
+  _linea(x1, y1, z1, x2, y2, z2, r, g, b, a) {
+    if (this.nLineas + 2 > this.maxVertLineas) return;
+    const L = this.lineas; let o = this.nLineas * 7;
+    L[o++] = x1; L[o++] = y1; L[o++] = z1; L[o++] = r; L[o++] = g; L[o++] = b; L[o++] = a;
+    L[o++] = x2; L[o++] = y2; L[o++] = z2; L[o++] = r; L[o++] = g; L[o++] = b; L[o++] = a;
+    this.nLineas += 2;
+  }
+  _esferaAlambre(cx, cy, cz, R, r, g, b, a) {
+    const S = 48;
+    for (let s = 0; s < S; s++) {
+      const a0 = s / S * TAU, a1 = (s + 1) / S * TAU, c0 = Math.cos(a0) * R, s0 = Math.sin(a0) * R, c1 = Math.cos(a1) * R, s1 = Math.sin(a1) * R;
+      this._linea(cx + c0, cy + s0, cz, cx + c1, cy + s1, cz, r, g, b, a);
+      this._linea(cx + c0, cy, cz + s0, cx + c1, cy, cz + s1, r, g, b, a);
+      this._linea(cx, cy + c0, cz + s0, cx, cy + c1, cz + s1, r, g, b, a);
+    }
+  }
+  /* Anillo horizontal (círculo en el plano z = cz): dormidero. */
+  _anillo(cx, cy, cz, R, r, g, b, a) {
+    const S = 48;
+    for (let s = 0; s < S; s++) {
+      const a0 = s / S * TAU, a1 = (s + 1) / S * TAU;
+      this._linea(cx + Math.cos(a0) * R, cy + Math.sin(a0) * R, cz, cx + Math.cos(a1) * R, cy + Math.sin(a1) * R, cz, r, g, b, a);
+    }
+  }
+  _caja(wx, wy, wz, r, g, b, a) {
+    const X = [0, wx], Y = [0, wy], Z = [0, wz];
+    for (const y of Y) for (const z of Z) this._linea(0, y, z, wx, y, z, r, g, b, a);
+    for (const x of X) for (const z of Z) this._linea(x, 0, z, x, wy, z, r, g, b, a);
+    for (const x of X) for (const y of Y) this._linea(x, y, 0, x, y, wz, r, g, b, a);
+  }
+
+  draw(esc) {
+    const gl = this.gl, sim = esc.sim, cam = esc.cam, estado = esc.estado, n = sim.n;
+    const T = esc.tema, bg = T.bg;
+    gl.clearColor(bg[0], bg[1], bg[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const niebla0 = cam.nieblaCerca, niebla1 = cam.nieblaLejos;
+
+    /* ---- Aves (instancias) ---- */
+    if (n > 0) {
+      const inst = this.inst, px = sim.px, py = sim.py, pz = sim.pz, vx = sim.vx, vy = sim.vy, vz = sim.vz, ax = sim.ax, ay = sim.ay, az = sim.az, col = esc.colRGB;
+      for (let i = 0, o = 0, c = 0; i < n; i++, o += 12, c += 3) {
+        inst[o] = px[i]; inst[o + 1] = py[i]; inst[o + 2] = pz[i];
+        inst[o + 3] = vx[i]; inst[o + 4] = vy[i]; inst[o + 5] = vz[i];
+        inst[o + 6] = ax[i]; inst[o + 7] = ay[i]; inst[o + 8] = az[i];
+        inst[o + 9] = col[c]; inst[o + 10] = col[c + 1]; inst[o + 11] = col[c + 2];
+      }
+      gl.useProgram(this.progAves);
+      const u = this.uAves;
+      gl.uniformMatrix4fv(u.uViewProj, false, cam.viewProj);
+      gl.uniform3f(u.uEye, cam.eye[0], cam.eye[1], cam.eye[2]);
+      gl.uniform3f(u.uLuz, this.luz[0], this.luz[1], this.luz[2]);
+      gl.uniform1f(u.uTam, Math.max(0.1, estado.tamanoAve));
+      gl.uniform1f(u.uAlabeo, estado.alabeo ? 1.2 / Math.max(0.002, sim.fmax * 2) : 0);
+      gl.uniform2f(u.uNiebla, niebla0, niebla1);
+      gl.uniform3f(u.uColNiebla, bg[0], bg[1], bg[2]);
+      gl.bindVertexArray(this.vaoAves);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.bufInst);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, inst.subarray(0, n * 12));
+      gl.drawArraysInstanced(gl.TRIANGLES, 0, this.nVertAve, n);
+      gl.bindVertexArray(null);
+    }
+
+    /* ---- Marcadores sólidos (octaedros) ---- */
+    const marcadores = esc.marcadores;   // [{x,y,z,escala,rgb}]
+    if (marcadores.length > 0) {
+      gl.useProgram(this.progSolido);
+      const u = this.uSolido;
+      gl.uniformMatrix4fv(u.uViewProj, false, cam.viewProj);
+      gl.uniform3f(u.uEye, cam.eye[0], cam.eye[1], cam.eye[2]);
+      gl.uniform3f(u.uLuz, this.luz[0], this.luz[1], this.luz[2]);
+      gl.uniform2f(u.uNiebla, niebla0, niebla1);
+      gl.uniform3f(u.uColNiebla, bg[0], bg[1], bg[2]);
+      gl.bindVertexArray(this.vaoSolido);
+      for (const m of marcadores) {
+        gl.uniform3f(u.uOrigen, m.x, m.y, m.z);
+        gl.uniform1f(u.uEscala, m.escala);
+        gl.uniform3f(u.uColor, m.rgb[0], m.rgb[1], m.rgb[2]);
+        gl.drawArrays(gl.TRIANGLES, 0, this.nVertOcta);
+      }
+      gl.bindVertexArray(null);
+    }
+
+    /* ---- Líneas: caja, anillos del dormidero, estelas, percepción del ave focal, radios de miedo ---- */
+    this.nLineas = 0;
+    const caja = T.caja;
+    if (estado.mostrarCaja) this._caja(sim.wx, sim.wy, sim.wz, caja[0], caja[1], caja[2], caja[3]);
+    for (const an of esc.anillos) this._anillo(an.x, an.y, an.z, an.R, an.rgb[0], an.rgb[1], an.rgb[2], an.alfa);
+    if (estado.estelas && esc.estelas.len > 1) {
+      const est = esc.estelas, K = est.K, buf = est.buf, col = esc.colRGB;
+      const hx = sim.wx * 0.5, hy = sim.wy * 0.5, hz = sim.wz * 0.5, toro = sim.toro;
+      for (let e = 1; e < est.len; e++) {
+        const b0 = est.base(e - 1), b1 = est.base(e), alfa = 0.7 * (1 - e / K);
+        for (let i = 0; i < n; i++) {
+          const q0 = b0 + i * 3, q1 = b1 + i * 3;
+          const x0 = buf[q0], y0 = buf[q0 + 1], z0 = buf[q0 + 2], x1 = buf[q1], y1 = buf[q1 + 1], z1 = buf[q1 + 2];
+          if (toro && (Math.abs(x1 - x0) > hx || Math.abs(y1 - y0) > hy || Math.abs(z1 - z0) > hz)) continue;
+          this._linea(x0, y0, z0, x1, y1, z1, col[i * 3], col[i * 3 + 1], col[i * 3 + 2], alfa);
+        }
+      }
+    }
+    if (estado.mostrarPercepcion && n > 0) {
+      const i = 0, x = sim.px[i], y = sim.py[i], z = sim.pz[i], ac = T.rgbAcento, de = T.rgbDepredador, ve = T.rgbVerde;
+      this._esferaAlambre(x, y, z, sim.R, ac[0], ac[1], ac[2], 0.7);
+      if (sim.rSep > 0) this._esferaAlambre(x, y, z, sim.rSep, de[0], de[1], de[2], 0.8);
+      const hx = sim.wx * 0.5, hy = sim.wy * 0.5, hz = sim.wz * 0.5;
+      for (let e = 0; e < sim.focalCount; e++) {
+        const j = sim.focalVecinos[e];
+        let dx = sim.px[j] - x, dy = sim.py[j] - y, dz = sim.pz[j] - z;
+        if (sim.toro) { if (dx > hx) dx -= sim.wx; else if (dx < -hx) dx += sim.wx; if (dy > hy) dy -= sim.wy; else if (dy < -hy) dy += sim.wy; if (dz > hz) dz -= sim.wz; else if (dz < -hz) dz += sim.wz; }
+        this._linea(x, y, z, x + dx, y + dy, z + dz, ve[0], ve[1], ve[2], 0.75);
+      }
+    }
+    for (const m of marcadores) if (m.radio > 0) this._esferaAlambre(m.x, m.y, m.z, m.radio, m.rgb[0], m.rgb[1], m.rgb[2], m.alfa);
+    if (this.nLineas > 0) {
+      gl.useProgram(this.progLineas);
+      const u = this.uLineas;
+      gl.uniformMatrix4fv(u.uViewProj, false, cam.viewProj);
+      gl.uniform3f(u.uEye, cam.eye[0], cam.eye[1], cam.eye[2]);
+      gl.uniform2f(u.uNiebla, niebla0, niebla1);
+      gl.uniform3f(u.uColNiebla, bg[0], bg[1], bg[2]);
+      gl.depthMask(false);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.bindVertexArray(this.vaoLineas);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.bufLineas);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.lineas.subarray(0, this.nLineas * 7));
+      gl.drawArrays(gl.LINES, 0, this.nLineas);
+      gl.bindVertexArray(null);
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+    }
+    if (this.perdido || gl.isContextLost()) throw new Error('contexto WebGL2 perdido');
+  }
+
+  dispose() {
+    const gl = this.gl;
+    try {
+      gl.deleteBuffer(this.bufAve); gl.deleteBuffer(this.bufInst); gl.deleteBuffer(this.bufOcta); gl.deleteBuffer(this.bufLineas);
+      gl.deleteVertexArray(this.vaoAves); gl.deleteVertexArray(this.vaoSolido); gl.deleteVertexArray(this.vaoLineas);
+      gl.deleteProgram(this.progAves); gl.deleteProgram(this.progSolido); gl.deleteProgram(this.progLineas);
+      const ext = gl.getExtension('WEBGL_lose_context');
+      if (ext && ext.loseContext) ext.loseContext();
+    } catch (e) { /* el contexto ya puede estar perdido */ }
+  }
+}
+
+/* =====================================================================
+   Renderizador alternativo: proyección por software sobre Canvas 2D
+   ===================================================================== */
+class RenderCanvas2D {
+  constructor(canvas, maxN, K) {
+    this.nombre = 'Canvas 2D';
+    this.canvas = canvas; this.maxN = maxN; this.K = K; this.perdido = false;
+    this.ctx = canvas.getContext('2d');
+    if (!this.ctx) throw new Error('getContext("2d") devolvió null');
+    this.sx = new Float32Array(maxN); this.sy = new Float32Array(maxN); this.zv = new Float32Array(maxN);
+    this.NBD = 1024;
+    this.bStart = new Int32Array(this.NBD + 1); this.bFill = new Int32Array(this.NBD); this.bucket = new Int32Array(maxN); this.orden = new Int32Array(maxN);
+    this._p = new Float64Array(3); this._q = new Float64Array(3);
+    this.W = 1; this.H = 1; this.dpr = 1;
+    // Cadenas de las estelas por tema y por edad (precalculadas)
+    this.estelaStr = {};
+    for (const T of Object.values(TEMAS)) {
+      const arr = new Array(K);
+      for (let e = 0; e < K; e++) arr[e] = rgbaStr(T.estela, (0.6 * (1 - e / K)).toFixed(3));
+      this.estelaStr[T.nombre] = arr;
+    }
+  }
+  resize(w, h, dpr) {
+    const lw = Math.max(1, Math.round(w * dpr)), lh = Math.max(1, Math.round(h * dpr));
+    if (this.canvas.width !== lw) this.canvas.width = lw;
+    if (this.canvas.height !== lh) this.canvas.height = lh;
+    this.W = w; this.H = h; this.dpr = dpr;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  _triangulo(x, y, c, s, L, B, A) {
+    const ctx = this.ctx;
+    ctx.moveTo(x + c * L, y + s * L);
+    ctx.lineTo(x - c * B - s * A, y - s * B + c * A);
+    ctx.lineTo(x - c * B + s * A, y - s * B - c * A);
+    ctx.closePath();
+  }
+  _segmento(cam, x0, y0, z0, x1, y1, z1) {
+    const p = this._p, q = this._q;
+    if (!cam.proyectar(x0, y0, z0, p) || !cam.proyectar(x1, y1, z1, q)) return;
+    this.ctx.moveTo(p[0], p[1]); this.ctx.lineTo(q[0], q[1]);
+  }
+  _circulo(cam, x, y, z, R, estilo, ancho) {
+    const p = this._p;
+    if (!cam.proyectar(x, y, z, p)) return;
+    const rr = R * cam.focalPx / p[2];
+    if (rr < 0.5) return;
+    this.ctx.strokeStyle = estilo; this.ctx.lineWidth = ancho;
+    this.ctx.beginPath(); this.ctx.arc(p[0], p[1], rr, 0, TAU); this.ctx.stroke();
+  }
+  /* Anillo horizontal en 3D (círculo en el plano z = cz, proyectado por segmentos): dormidero. */
+  _anillo(cam, cx, cy, cz, R, estilo, ancho) {
+    const ctx = this.ctx, S = 48;
+    ctx.strokeStyle = estilo; ctx.lineWidth = ancho; ctx.beginPath();
+    for (let s = 0; s < S; s++) {
+      const a0 = s / S * TAU, a1 = (s + 1) / S * TAU;
+      this._segmento(cam, cx + Math.cos(a0) * R, cy + Math.sin(a0) * R, cz, cx + Math.cos(a1) * R, cy + Math.sin(a1) * R, cz);
+    }
+    ctx.stroke();
+  }
+  draw(esc) {
+    const ctx = this.ctx, sim = esc.sim, cam = esc.cam, estado = esc.estado, n = sim.n, W = this.W, H = this.H;
+    const T = esc.tema, css = T.css;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.fillStyle = css.fondo; ctx.fillRect(0, 0, W, H);
+    const eye = cam.eye, f = cam.f, r = cam.r, u = cam.u, near = cam.near, focalPx = cam.focalPx;
+    const niebla0 = cam.nieblaCerca, invNiebla = 1 / Math.max(0.001, cam.nieblaLejos - cam.nieblaCerca);
+
+    /* ---- Caja ---- */
+    if (estado.mostrarCaja) {
+      ctx.strokeStyle = css.caja; ctx.lineWidth = 1; ctx.beginPath();
+      const wx = sim.wx, wy = sim.wy, wz = sim.wz;
+      for (const y of [0, wy]) for (const z of [0, wz]) this._segmento(cam, 0, y, z, wx, y, z);
+      for (const x of [0, wx]) for (const z of [0, wz]) this._segmento(cam, x, 0, z, x, wy, z);
+      for (const x of [0, wx]) for (const y of [0, wy]) this._segmento(cam, x, y, 0, x, y, wz);
+      ctx.stroke();
+    }
+
+    /* ---- Anillos del dormidero ---- */
+    for (const an of esc.anillos) this._anillo(cam, an.x, an.y, an.z, an.R, an.alfa >= 0.4 ? css.dormidero : css.dormideroSuelo, 1);
+
+    /* ---- Estelas (por edad, un trazo por nivel de transparencia) ---- */
+    if (estado.estelas && esc.estelas.len > 1) {
+      const est = esc.estelas, K = est.K, buf = est.buf, estStr = this.estelaStr[T.nombre];
+      const hx = sim.wx * 0.5, hy = sim.wy * 0.5, hz = sim.wz * 0.5, toro = sim.toro;
+      ctx.lineWidth = 1;
+      for (let e = 1; e < est.len; e++) {
+        const b0 = est.base(e - 1), b1 = est.base(e);
+        ctx.strokeStyle = estStr[Math.min(e, K - 1)];
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) {
+          const q0 = b0 + i * 3, q1 = b1 + i * 3;
+          const x0 = buf[q0], y0 = buf[q0 + 1], z0 = buf[q0 + 2], x1 = buf[q1], y1 = buf[q1 + 1], z1 = buf[q1 + 2];
+          if (toro && (Math.abs(x1 - x0) > hx || Math.abs(y1 - y0) > hy || Math.abs(z1 - z0) > hz)) continue;
+          this._segmento(cam, x0, y0, z0, x1, y1, z1);
+        }
+        ctx.stroke();
+      }
+    }
+
+    /* ---- Aves: proyectar, ordenar de atrás hacia adelante (cubetas de profundidad), dibujar ---- */
+    if (n > 0) {
+      const px = sim.px, py = sim.py, pz = sim.pz, vx = sim.vx, vy = sim.vy, vz = sim.vz;
+      const sxA = this.sx, syA = this.sy, zvA = this.zv, bucket = this.bucket, bStart = this.bStart, bFill = this.bFill, orden = this.orden, NBD = this.NBD;
+      let zmin = Infinity, zmax = -Infinity, visibles = 0;
+      for (let i = 0; i < n; i++) {
+        const dx = px[i] - eye[0], dy = py[i] - eye[1], dz = pz[i] - eye[2];
+        const zv = dx * f[0] + dy * f[1] + dz * f[2];
+        if (!(zv > near)) { zvA[i] = -1; continue; }
+        const inv = focalPx / zv;
+        sxA[i] = W * 0.5 + (dx * r[0] + dy * r[1] + dz * r[2]) * inv;
+        syA[i] = H * 0.5 - (dx * u[0] + dy * u[1] + dz * u[2]) * inv;
+        zvA[i] = zv; visibles++;
+        if (zv < zmin) zmin = zv; if (zv > zmax) zmax = zv;
+      }
+      if (visibles > 0) {
+        bStart.fill(0);
+        const escala = (NBD - 1) / Math.max(1e-6, zmax - zmin);
+        for (let i = 0; i < n; i++) {
+          if (zvA[i] < 0) continue;
+          let b = ((zmax - zvA[i]) * escala) | 0; if (b < 0) b = 0; else if (b >= NBD) b = NBD - 1;
+          bucket[i] = b; bStart[b + 1]++;
+        }
+        for (let b = 0; b < NBD; b++) bStart[b + 1] += bStart[b];
+        for (let b = 0; b < NBD; b++) bFill[b] = bStart[b];
+        for (let i = 0; i < n; i++) { if (zvA[i] < 0) continue; orden[bFill[bucket[i]]++] = i; }
+
+        const tabla = esc.tablaStr, colIdx = esc.colIdx, tam = Math.max(0.1, estado.tamanoAve);
+        let estiloActual = null, abierto = false;
+        for (let e = 0; e < visibles; e++) {
+          const i = orden[e], zv = zvA[i], sx = sxA[i], sy = syA[i];
+          let nf = (zv - niebla0) * invNiebla; if (nf < 0) nf = 0; else if (nf > 0.999) nf = 0.999;
+          const estilo = tabla[colIdx[i]][(nf * NIVELES_NIEBLA) | 0];
+          if (estilo !== estiloActual) {
+            if (abierto) ctx.fill();
+            ctx.fillStyle = estilo; estiloActual = estilo; ctx.beginPath(); abierto = true;
+          }
+          // Dirección de la velocidad en pantalla (derivada de la proyección en perspectiva)
+          const vxi = vx[i], vyi = vy[i], vzi = vz[i];
+          const vvx = vxi * r[0] + vyi * r[1] + vzi * r[2], vvy = vxi * u[0] + vyi * u[1] + vzi * u[2], vvz = vxi * f[0] + vyi * f[1] + vzi * f[2];
+          const xv = (sx - W * 0.5) * zv / focalPx, yv = -(sy - H * 0.5) * zv / focalPx;
+          let dxs = vvx * zv - xv * vvz, dys = -(vvy * zv - yv * vvz);
+          const ld = Math.sqrt(dxs * dxs + dys * dys);
+          if (ld > 1e-9) { dxs /= ld; dys /= ld; } else { dxs = 1; dys = 0; }
+          let esc2 = tam * focalPx / zv; if (esc2 < 1.5) esc2 = 1.5; else if (esc2 > 80) esc2 = 80;
+          this._triangulo(sx, sy, dxs, dys, esc2, esc2 * 0.62, esc2 * 0.45);
+        }
+        if (abierto) ctx.fill();
+      }
+    }
+
+    /* ---- Ave focal: radio de percepción, separación y vecinos ---- */
+    if (estado.mostrarPercepcion && n > 0) {
+      const i = 0, x = sim.px[i], y = sim.py[i], z = sim.pz[i];
+      this._circulo(cam, x, y, z, sim.R, css.percepcion, 1);
+      if (sim.rSep > 0) this._circulo(cam, x, y, z, sim.rSep, css.separacion, 1);
+      ctx.strokeStyle = css.vecinos; ctx.lineWidth = 1; ctx.beginPath();
+      const hx = sim.wx * 0.5, hy = sim.wy * 0.5, hz = sim.wz * 0.5;
+      for (let e = 0; e < sim.focalCount; e++) {
+        const j = sim.focalVecinos[e];
+        let dx = sim.px[j] - x, dy = sim.py[j] - y, dz = sim.pz[j] - z;
+        if (sim.toro) { if (dx > hx) dx -= sim.wx; else if (dx < -hx) dx += sim.wx; if (dy > hy) dy -= sim.wy; else if (dy < -hy) dy += sim.wy; if (dz > hz) dz -= sim.wz; else if (dz < -hz) dz += sim.wz; }
+        this._segmento(cam, x, y, z, x + dx, y + dy, z + dz);
+      }
+      ctx.stroke();
+      const p = this._p;
+      if (cam.proyectar(x, y, z, p)) {
+        ctx.fillStyle = css.texto; ctx.font = '12px ui-monospace, Consolas, Menlo, monospace';
+        ctx.fillText(sim.focalCount + ' vecinos', p[0] + 12, p[1] - 12);
+      }
+    }
+
+    /* ---- Marcadores (depredador, cursor, halcón, centro de masa): rombo, mayor para el halcón ---- */
+    const p = this._p;
+    for (const m of esc.marcadores) {
+      if (!cam.proyectar(m.x, m.y, m.z, p)) continue;
+      const rr = Math.max(m.halcon ? 5 : 2, m.escala * focalPx / p[2]);
+      ctx.fillStyle = rgbStr(m.rgb);
+      ctx.beginPath(); ctx.moveTo(p[0], p[1] - rr); ctx.lineTo(p[0] + rr, p[1]); ctx.lineTo(p[0], p[1] + rr); ctx.lineTo(p[0] - rr, p[1]); ctx.closePath(); ctx.fill();
+      if (m.halcon) { ctx.strokeStyle = css.contorno; ctx.lineWidth = 1; ctx.stroke(); }
+      if (m.cruz) { ctx.strokeStyle = css.contorno; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(p[0] - rr * 0.6, p[1]); ctx.lineTo(p[0] + rr * 0.6, p[1]); ctx.moveTo(p[0], p[1] - rr * 0.6); ctx.lineTo(p[0], p[1] + rr * 0.6); ctx.stroke(); }
+      if (m.radio > 0) this._circulo(cam, m.x, m.y, m.z, m.radio, rgbaStr(m.rgb, m.alfa), 1);
+    }
+  }
+  dispose() { /* nada que liberar */ }
+}
+
+/* =====================================================================
+   Parámetros: valores por defecto, esquema de controles y presets
+   ===================================================================== */
+/* BASE: modelo neutro (bandada clásica de Reynolds). Es la base sobre la que se aplican los presets y la
+   referencia para completar claves ausentes al importar. Los valores iniciales del usuario son DEFAULTS (más abajo). */
+const BASE = Object.freeze({
+  N: 500, vecindad: 'metrico', radioPercepcion: 90, campoVision: 270, k: 7,
+  radioSeparacion: 50, radioAlineacion: 90, pesoSeparacion: 2.0, pesoAlineacion: 1.2, pesoCohesion: 0.8,
+  fuerzaMax: 0.12, velMin: 1.5, velMax: 3.5, dt: 1.0, anisotropiaVertical: 0,
+  pesoDormidero: 0, radioDormidero: 150, alturaPreferida: 0.5, pesoAltura: 0,
+  velCrucero: 2.5, relajacionVelocidad: 0, variabilidadVelocidad: 0,
+  fraccionInformados: 0, pesoInformados: 0.5, acimutPreferido: 0, elevacionPreferida: 0, informadosCursor: false,
+  ruido: 0, modoMouse: 'ninguno', radioMiedo: 140, pesoMiedo: 3.0, pesoAtraccion: 0.5,
+  halconActivo: false, objetivoHalcon: 'centro', velHalcon: 1.3, giroHalcon: 0.15, periodoAtaque: 900,
+  mundoX: 800, mundoY: 500, mundoZ: 500, bordes: 'toroidal', margen: 60,
+  modoColor: 'rumbo', tamanoAve: 10, mostrarPercepcion: false, mostrarCaja: true, mostrarCoM: false, alabeo: true,
+  fov: 55, autoRotarActivo: false, autoRotar: 8, seguirCoM: false, renderizador: 'auto'
+});
+
+const ESQUEMA = [
+  // --- Población y percepción ---
+  { sec: 'poblacion', tipo: 'rango', key: 'N', label: 'Cantidad de aves (N)', min: 10, max: 3000, step: 10, dec: 0, unidad: '',
+    tip: 'Cantidad de aves. Más aves → mayor densidad y más vecinos por ave (y más costo de cómputo). Las nuevas nacen en posiciones aleatorias dentro de la caja.' },
+  { sec: 'poblacion', tipo: 'select', key: 'vecindad', label: 'Tipo de vecindad',
+    opciones: [['metrico', 'Métrico (radio R)'], ['topologico', 'Topológico (k vecinos más cercanos)']],
+    tip: 'Métrico: vecinos dentro de la esfera de radio R (Reynolds 1987). Topológico: los k vecinos más cercanos (Ballerini et al. 2008), más robusto ante cambios de densidad. Implementación híbrida: se buscan candidatos dentro de R con la grilla espacial y se conservan los k más cercanos. La separación es siempre métrica.' },
+  { sec: 'poblacion', tipo: 'rango', key: 'radioPercepcion', label: 'Radio de percepción (R)', min: 10, max: 300, step: 1, dec: 0, unidad: ' u',
+    tip: 'Radio de la esfera dentro de la cual un ave percibe a otras (unidades del mundo). En 3D el número de vecinos crece con R³: aumentarlo → alineación más global y grupos más grandes; reducirlo → bandadas fragmentadas. También define el tamaño de celda de la grilla espacial (y el radio de búsqueda de candidatos en modo topológico).' },
+  { sec: 'poblacion', tipo: 'rango', key: 'campoVision', label: 'Campo de visión', min: 30, max: 360, step: 5, dec: 0, unidad: '°',
+    tip: 'Apertura total del cono de visión centrado en la dirección de vuelo. 360° = sin punto ciego; 270° deja un cono ciego de 90° detrás del ave. Reducirlo → las aves ignoran a quienes vienen por detrás.' },
+  { sec: 'poblacion', tipo: 'rango', key: 'k', label: 'k vecinos (modo topológico)', min: 1, max: 30, step: 1, dec: 0, unidad: '',
+    tip: 'Cantidad de vecinos más cercanos considerados en modo topológico. Ballerini et al. (2008) midieron ≈6–7 vecinos topológicos en estorninos; Bialek et al. (2012) confirmaron, con un modelo de máxima entropía construido sobre datos de campo, que el número de vecinos con los que interactúa cada ave es independiente de la densidad. Sólo se usa si la vecindad es topológica.' },
+  // --- Reglas de Reynolds y zonas de Couzin ---
+  { sec: 'reglas', tipo: 'rango', key: 'radioSeparacion', label: 'Radio de separación (zona de repulsión)', min: 2, max: 150, step: 1, dec: 0, unidad: ' u',
+    tip: 'Distancia por debajo de la cual un ave se aleja de sus vecinas (peso ∝ 1/d): la zona de repulsión de Couzin et al. (2002). Mayor radio → bandada más esparcida; menor → más compacta, con riesgo de superposición.' },
+  { sec: 'reglas', tipo: 'rango', key: 'radioAlineacion', label: 'Radio de alineación (zona de orientación)', min: 5, max: 300, step: 1, dec: 0, unidad: ' u',
+    tip: 'Zona de orientación de Couzin et al. (2002): la alineación sólo usa vecinos a menos de esta distancia, mientras que la cohesión usa todos los vecinos percibidos dentro de R (zona de atracción). Se recorta a R; con R_ali = R el comportamiento es el clásico. Couzin et al. mostraron que cambios menores en el ancho de esta zona producen transiciones mayores: enjambre (R_ali ≈ R_sep) → toro / molinete (intermedio) → grupo paralelo (R_ali ≈ R), con histéresis («memoria colectiva»). En modo topológico, los k más cercanos son los vecinos y la alineación exige además d < R_ali.' },
+  { sec: 'reglas', tipo: 'rango', key: 'pesoSeparacion', label: 'Peso de separación', min: 0, max: 3, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso de la regla de separación. Alto → evita colisiones y dispersa; 0 → las aves se amontonan y superponen.' },
+  { sec: 'reglas', tipo: 'rango', key: 'pesoAlineacion', label: 'Peso de alineación', min: 0, max: 3, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso de la regla de alineación (igualar la velocidad media de los vecinos). Alto → φ sube rápido y el grupo vuela en bloque; 0 → enjambre sin rumbo común.' },
+  { sec: 'reglas', tipo: 'rango', key: 'pesoCohesion', label: 'Peso de cohesión', min: 0, max: 3, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso de la regla de cohesión (dirigirse al centro de masa LOCAL de los vecinos percibidos). Alto → grupos densos; 0 → la bandada se disgrega poco a poco.' },
+  // --- Dinámica ---
+  { sec: 'dinamica', tipo: 'rango', key: 'fuerzaMax', label: 'Fuerza máxima (capacidad de giro)', min: 0.01, max: 1, step: 0.01, dec: 2, unidad: '',
+    tip: 'Magnitud máxima de cada fuerza de dirección por paso (steer = deseado − velocidad, acotado). Alta → reacciones bruscas; baja → trayectorias suaves e inerciales.' },
+  { sec: 'dinamica', tipo: 'rango', key: 'velMin', label: 'Velocidad mínima', min: 0, max: 5, step: 0.1, dec: 1, unidad: ' u/paso',
+    tip: 'Las aves nunca bajan de esta velocidad (como en vuelo real). Si supera la máxima, se usa la máxima.' },
+  { sec: 'dinamica', tipo: 'rango', key: 'velMax', label: 'Velocidad máxima', min: 0.5, max: 10, step: 0.1, dec: 1, unidad: ' u/paso',
+    tip: 'Velocidad tope. Aumentarla → todo ocurre más rápido y los giros se ven más amplios para la misma fuerza máxima.' },
+  { sec: 'dinamica', tipo: 'rango', key: 'dt', label: 'Paso temporal (velocidad de simulación)', min: 0.1, max: 2, step: 0.05, dec: 2, unidad: '',
+    tip: 'Multiplicador del paso de integración. Valores altos aceleran la simulación pero pueden volverla menos estable; bajos la suavizan.' },
+  { sec: 'dinamica', tipo: 'rango', key: 'anisotropiaVertical', label: 'Anisotropía vertical (κ)', min: 0, max: 1, step: 0.05, dec: 2, unidad: '',
+    tip: 'κ = 0: dinámica isotrópica (todas las direcciones equivalentes). Al crecer κ, cada ave amortigua la componente vertical de su velocidad, tiende a igualar la altura media de sus vecinas (resorte vertical local, acotado) y mide la separación en una métrica «achatada» (eje vertical comprimido por 1 − κ, así dos aves apiladas se repelen en horizontal), de modo que la bandada tiende a volar en láminas horizontales delgadas. Ballerini et al. (2008) observaron que las bandadas de estorninos son relativamente delgadas y tienden a deslizarse paralelas al suelo. Mirá cambiar la métrica «Forma de la bandada».' },
+  // --- Dormidero y velocidad de crucero (StarDisplay, Hildenbrandt et al. 2010) ---
+  { sec: 'dormidero', tipo: 'rango', key: 'pesoDormidero', label: 'Peso del dormidero', min: 0, max: 2, step: 0.05, dec: 2, unidad: '',
+    tip: 'Atracción horizontal hacia el dormidero (centro de la caja), tomada de StarDisplay (Hildenbrandt, Carere y Hemelrijk 2010): allí el movimiento preferencial por encima del sitio de descanso es lo que mantiene el despliegue en una zona y permite que las sub-bandadas se vuelvan a fusionar. Sólo actúa fuera del radio del dormidero, con fuerza que crece suavemente desde 0 (en R_dorm) hasta el máximo (en 2·R_dorm); es un steer de Reynolds acotado a F_max. 0 = desactivado. Pensado para bordes «Rebote suave»; en el toro usa el desplazamiento directo al centro y también funciona. Se dibuja como un anillo a la altura preferida y otro más tenue en el piso.' },
+  { sec: 'dormidero', tipo: 'rango', key: 'radioDormidero', label: 'Radio del dormidero', min: 20, max: 600, step: 10, dec: 0, unidad: ' u',
+    tip: 'Radio horizontal dentro del cual el dormidero no ejerce fuerza. Entre R_dorm y 2·R_dorm la atracción crece con una rampa suave. Menor radio → despliegue más concentrado.' },
+  { sec: 'dormidero', tipo: 'rango', key: 'alturaPreferida', label: 'Altura preferida (fracción de la caja)', min: 0, max: 1, step: 0.05, dec: 2, unidad: '',
+    tip: 'Altura de vuelo preferida sobre el dormidero, como fracción de la altura de la caja (0,5 = a media altura). Sólo actúa si el peso de la altura es mayor que 0.' },
+  { sec: 'dormidero', tipo: 'rango', key: 'pesoAltura', label: 'Peso de la altura preferida', min: 0, max: 1, step: 0.05, dec: 2, unidad: '',
+    tip: 'Cada ave ajusta su velocidad vertical hacia la altura preferida: v_z deseada = 0,02·(z_pref − z), acotada a ±v_max, con un steer vertical acotado a ±F_max. Con el dormidero, mantiene el despliegue en una franja de altura (StarDisplay). 0 = desactivado.' },
+  { sec: 'dormidero', tipo: 'rango', key: 'velCrucero', label: 'Velocidad de crucero (v₀)', min: 0.5, max: 10, step: 0.1, dec: 1, unidad: ' u/paso',
+    tip: 'Rapidez preferida hacia la que cada ave relaja su velocidad (control de velocidad de StarDisplay): en cada paso |v| ← |v| + λ·(v₀ᵢ − |v|)·dt, antes del recorte a [v_min, v_max]. Sólo actúa si la relajación es mayor que 0.' },
+  { sec: 'dormidero', tipo: 'rango', key: 'relajacionVelocidad', label: 'Relajación de velocidad (λ)', min: 0, max: 1, step: 0.01, dec: 2, unidad: '',
+    tip: 'Fracción de la diferencia con la velocidad de crucero que se corrige por paso. 0 = desactivado (sólo actúan v_min y v_max); 0,1 → la rapidez converge en unas decenas de pasos; 1 → la impone de inmediato.' },
+  { sec: 'dormidero', tipo: 'rango', key: 'variabilidadVelocidad', label: 'Variabilidad individual (σ)', min: 0, max: 0.5, step: 0.01, dec: 2, unidad: '',
+    tip: 'Dispersión relativa de la velocidad de crucero entre individuos: v₀ᵢ = v_crucero·(1 + σ·ξᵢ), con ξᵢ ~ N(0,1) recortado a ±2 y fijo por ave (se sortea al reiniciar o al nacer, así mover este control no produce parpadeo). Aves más rápidas y más lentas tienden a ordenarse dentro de la bandada.' },
+  // --- Individuos informados ---
+  { sec: 'informados', tipo: 'rango', key: 'fraccionInformados', label: 'Fracción de informados (p)', min: 0, max: 100, step: 1, dec: 0, unidad: ' %',
+    tip: 'Porcentaje de aves «informadas» con una dirección preferida (Couzin et al. 2005). Con un 5–10 % suele alcanzar para guiar a toda la bandada; el resto no sabe quién está informado. Se dibujan en naranja.' },
+  { sec: 'informados', tipo: 'rango', key: 'pesoInformados', label: 'Peso de la preferencia (ω)', min: 0, max: 2, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso ω de la dirección preferida frente a las reglas sociales. 0 → la ignoran; alto → la siguen aunque pierdan la bandada.' },
+  { sec: 'informados', tipo: 'rango', key: 'acimutPreferido', label: 'Dirección preferida g: acimut', min: 0, max: 360, step: 5, dec: 0, unidad: '°',
+    tip: 'Acimut (ángulo horizontal) de la dirección preferida g de las aves informadas: 0° = hacia +X (ancho), 90° = hacia +Y (profundidad), 180° = hacia −X.' },
+  { sec: 'informados', tipo: 'rango', key: 'elevacionPreferida', label: 'Dirección preferida g: elevación', min: -90, max: 90, step: 5, dec: 0, unidad: '°',
+    tip: 'Elevación (ángulo vertical) de la dirección preferida g: 0° = vuelo horizontal, +90° = hacia arriba (+Z), −90° = hacia abajo.' },
+  { sec: 'informados', tipo: 'check', key: 'informadosCursor', label: 'Objetivo = cursor (en vez de g)',
+    tip: 'Si está activo, las aves informadas se dirigen hacia el punto 3D del cursor (proyectado al plano del objetivo de la cámara) en lugar de a la dirección fija g. Sólo actúa mientras el puntero está sobre la escena y no se está arrastrando.' },
+  // --- Perturbaciones ---
+  { sec: 'perturbaciones', tipo: 'rango', key: 'ruido', label: 'Ruido angular (η)', min: 0, max: 6.3, step: 0.05, dec: 2, unidad: ' rad',
+    tip: 'Perturbación angular uniforme en [−η/2, η/2] radianes aplicada al rumbo en cada paso (Vicsek et al. 1995); en 3D la velocidad se rota alrededor de un eje aleatorio perpendicular a ella, sin sesgo. 0 → determinista. Al crecer η cae el parámetro de orden φ: transición orden–desorden.' },
+  { sec: 'perturbaciones', tipo: 'select', key: 'modoMouse', label: 'Rol del cursor',
+    opciones: [['ninguno', 'Ninguno'], ['atraer', 'Atraer (objetivo)'], ['depredador', 'Depredador (huir)']],
+    tip: 'Ninguno: el cursor no influye. Atraer: todas las aves se dirigen hacia el punto 3D del cursor. Depredador: las aves dentro del radio de miedo huyen de ese punto. El punto 3D es la proyección del cursor sobre el plano que pasa por el objetivo de la cámara, perpendicular a la vista; sólo actúa mientras el puntero está sobre la escena y no se está arrastrando (arrastrar orbita la cámara). Un clic sin arrastre (menos de 4 px) coloca o quita un depredador fijo.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'radioMiedo', label: 'Radio de miedo', min: 20, max: 400, step: 5, dec: 0, unidad: ' u',
+    tip: 'Distancia a la que las aves detectan al depredador y empiezan a huir.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'pesoMiedo', label: 'Peso de la huida', min: 0, max: 6, step: 0.1, dec: 1, unidad: '',
+    tip: 'Peso de la huida del depredador; suele ser mayor que el de las reglas sociales para que la bandada se abra al pasar.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'pesoAtraccion', label: 'Peso de la atracción', min: 0, max: 2, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso de la atracción hacia el cursor en modo Atraer.' },
+  { sec: 'perturbaciones', tipo: 'check', key: 'halconActivo', label: 'Halcón autónomo',
+    tip: 'Agrega un depredador autónomo (rombo rojo grande con su radio de miedo) inspirado en Storms, Carere, Zoratto y Hemelrijk (2019), que a partir de 182 secuencias de caza de halcones describieron los patrones de escape colectivo de los estorninos: expansión súbita, oscurecimiento, onda, vacuola, cordón y división; el patrón depende del anterior y de la velocidad y dirección del ataque, y a mayor frecuencia de ataques hay más eventos de escape. El halcón es una masa puntual con steer propio; las aves huyen de él dentro del radio de miedo con el peso de la huida, igual que del cursor depredador. Su estado se reinicia con «Reiniciar».' },
+  { sec: 'perturbaciones', tipo: 'select', key: 'objetivoHalcon', label: 'Objetivo del halcón',
+    opciones: [['centro', 'Centro de masa (expansión súbita / vacuola)'], ['cercana', 'Ave más cercana (persecución)']],
+    tip: 'Centro de masa: el halcón atraviesa la bandada por el medio y la bandada se abre a su paso (expansión súbita, vacuola). Ave más cercana: persigue a un individuo y provoca ondas y divisiones locales.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'velHalcon', label: 'Velocidad del halcón (× v_max)', min: 0.5, max: 2.5, step: 0.05, dec: 2, unidad: '',
+    tip: 'Rapidez máxima del halcón como múltiplo de la velocidad máxima de las aves. Storms et al. (2019) hallaron la expansión súbita más frecuente con ataques rápidos.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'giroHalcon', label: 'Capacidad de giro del halcón', min: 0.02, max: 0.6, step: 0.01, dec: 2, unidad: '',
+    tip: 'Fuerza de dirección máxima del halcón por paso. Baja → pasadas amplias que atraviesan la bandada; alta → giros cerrados y persecución insistente.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'periodoAtaque', label: 'Período de ataque', min: 200, max: 4000, step: 50, dec: 0, unidad: ' pasos',
+    tip: 'Duración de un ciclo de ataque: el halcón ataca durante el primer 60 % del período y luego se retira a su posadero (una arista de la caja, a 0,8 de la altura) el 40 % restante, de modo que los ataques se repiten. Más corto → más ataques por unidad de tiempo → más eventos de escape.' },
+  // --- Mundo y visualización ---
+  { sec: 'entorno', tipo: 'rango', key: 'mundoX', label: 'Ancho del mundo (X)', min: 100, max: 2000, step: 10, dec: 0, unidad: ' u',
+    tip: 'Ancho de la caja (eje X). Al cambiarlo, las aves que quedan afuera se envuelven hacia adentro.' },
+  { sec: 'entorno', tipo: 'rango', key: 'mundoY', label: 'Profundidad del mundo (Y)', min: 100, max: 2000, step: 10, dec: 0, unidad: ' u',
+    tip: 'Profundidad de la caja (eje Y, horizontal).' },
+  { sec: 'entorno', tipo: 'rango', key: 'mundoZ', label: 'Altura del mundo (Z)', min: 50, max: 2000, step: 10, dec: 0, unidad: ' u',
+    tip: 'Altura de la caja (eje Z, vertical). Una caja baja fuerza bandadas achatadas; compará con el efecto de κ, que las achata por la dinámica y no por las paredes.' },
+  { sec: 'entorno', tipo: 'select', key: 'bordes', label: 'Bordes',
+    opciones: [['toroidal', 'Toroidal (envolvente)'], ['rebote', 'Rebote suave (margen)']],
+    tip: 'Toroidal: la caja se envuelve en los tres ejes (sale por una cara y entra por la opuesta), sin efectos de borde. Rebote suave: las aves giran al entrar en un margen cerca de cada cara.' },
+  { sec: 'entorno', tipo: 'rango', key: 'margen', label: 'Margen de giro (rebote)', min: 10, max: 200, step: 5, dec: 0, unidad: ' u',
+    tip: 'Ancho de la franja junto a cada cara donde actúa el empuje hacia adentro (sólo en modo Rebote suave).' },
+  { sec: 'entorno', tipo: 'select', key: 'modoColor', label: 'Color de las aves',
+    opciones: [['rumbo', 'Por rumbo (tono = acimut)'], ['velocidad', 'Por velocidad'], ['altura', 'Por altura (z)'], ['uniforme', 'Uniforme']],
+    tip: 'Por rumbo: el tono indica el acimut de la velocidad (una bandada alineada se ve de un solo color). Por velocidad: azul lento → amarillo rápido. Por altura: turquesa abajo → rosa arriba. Las aves informadas siempre van en naranja, el ave focal en blanco (negro en el tema claro) y los depredadores en rojo. Con el tema claro las paletas son más oscuras para leerse sobre fondo blanco.' },
+  { sec: 'entorno', tipo: 'rango', key: 'tamanoAve', label: 'Tamaño de las aves', min: 2, max: 25, step: 1, dec: 0, unidad: ' u',
+    tip: 'Largo aproximado del modelo de cada ave, en unidades del mundo. Sólo afecta el dibujo, no la dinámica.' },
+  { sec: 'entorno', tipo: 'check', key: 'alabeo', label: 'Alabeo en giros',
+    tip: 'Inclina (rola) cada ave según su aceleración lateral, como un avión que se ladea al girar. Sólo visual.' },
+  { sec: 'entorno', tipo: 'check', key: 'mostrarPercepcion', label: 'Mostrar percepción de un ave',
+    tip: 'Resalta un ave focal (blanca en el tema oscuro, negra en el claro): esfera de percepción R, esfera de separación y líneas hacia sus vecinos actuales. El HUD muestra cuántos vecinos usa.' },
+  { sec: 'entorno', tipo: 'check', key: 'mostrarCaja', label: 'Mostrar caja del mundo',
+    tip: 'Dibuja las aristas de la caja que delimita el mundo.' },
+  { sec: 'entorno', tipo: 'check', key: 'mostrarCoM', label: 'Mostrar centro de masa',
+    tip: 'Dibuja un marcador celeste en el centro de masa de toda la bandada (sólo visual: las aves no lo usan).' },
+  // --- Cámara y renderizado ---
+  { sec: 'camara', tipo: 'rango', key: 'fov', label: 'Campo visual de la cámara (FOV)', min: 20, max: 120, step: 1, dec: 0, unidad: '°',
+    tip: 'Apertura vertical de la cámara en perspectiva. Valores bajos → teleobjetivo (menos distorsión); altos → gran angular.' },
+  { sec: 'camara', tipo: 'check', key: 'autoRotarActivo', label: 'Auto-rotación activa',
+    tip: 'Gira la cámara automáticamente alrededor del objetivo. Se puede detener y reanudar también con los botones «Rotación» y con la tecla O. Se pausa mientras arrastrás.' },
+  { sec: 'camara', tipo: 'rango', key: 'autoRotar', label: 'Velocidad de auto-rotación', min: 1, max: 60, step: 1, dec: 0, unidad: ' °/s',
+    tip: 'Velocidad del giro automático de la cámara (grados por segundo). Sólo actúa con la auto-rotación activa.' },
+  { sec: 'camara', tipo: 'check', key: 'seguirCoM', label: 'Seguir centro de masa',
+    tip: 'El objetivo de la cámara sigue suavemente el centro de masa de la bandada.' },
+  { sec: 'camara', tipo: 'select', key: 'renderizador', label: 'Renderizador',
+    opciones: [['auto', 'Automático (WebGL2 si está disponible)'], ['webgl2', 'WebGL2'], ['canvas2d', 'Canvas 2D (software)']],
+    tip: 'Automático: intenta WebGL2 (instancias, iluminación y niebla) y, si falla, pasa a Canvas 2D. Canvas 2D: proyección por software, más lenta pero universal. El HUD indica cuál está activo.' }
+];
+
+/* Parámetros compartidos por los presets de estorninos (StarDisplay): topológico k = 7, crucero, κ, mundo 1000³ */
+const BASE_ESTORNINOS = {
+  N: 1000, vecindad: 'topologico', k: 7, radioPercepcion: 80, radioAlineacion: 80, radioSeparacion: 50,
+  pesoSeparacion: 2.0, pesoAlineacion: 1.5, pesoCohesion: 1.0, anisotropiaVertical: 0.3,
+  velCrucero: 3.0, relajacionVelocidad: 0.1, variabilidadVelocidad: 0.1, velMin: 1.5, velMax: 3.5,
+  mundoX: 1000, mundoY: 1000, mundoZ: 1000, alabeo: true, modoColor: 'altura'
+};
+const PRESETS = [
+  { id: 'clasica', nombre: 'Bandada clásica (Reynolds 1987)', p: {},
+    desc: 'Tres reglas locales (separación, alineación, cohesión) con vecindad métrica: la bandada emerge sin líder ni centro global (Reynolds 1987).' },
+  { id: 'estorninos_dormidero', nombre: 'Estorninos sobre el dormidero (Hildenbrandt et al. 2010)',
+    p: Object.assign({}, BASE_ESTORNINOS, { pesoDormidero: 1.2, radioDormidero: 150, alturaPreferida: 0.5, pesoAltura: 0.15, bordes: 'rebote', margen: 80, autoRotarActivo: true, autoRotar: 6, modoColor: 'uniforme' }),
+    desc: 'Despliegue aéreo tipo StarDisplay: k = 7 vecinos topológicos, crucero y dormidero. Las sub-bandadas se dividen y se vuelven a fusionar; mirá «Fracción en el grupo mayor» (Hildenbrandt, Carere y Hemelrijk 2010).' },
+  { id: 'fragmentacion', nombre: 'Fragmentación en mundo grande (sin dormidero)',
+    p: Object.assign({}, BASE_ESTORNINOS, { pesoDormidero: 0, pesoAltura: 0, bordes: 'toroidal', mundoX: 1300, mundoY: 1300, mundoZ: 1300 }),
+    desc: 'Mismas reglas locales sin dormidero, en un toro de 1300³: la nube se condensa en decenas de sub-bandadas, cada una internamente alineada, que ya no se reencuentran (fracción en el grupo mayor ≈ 0,4–0,6; el φ global depende de cuántas comparten rumbo). En 1000³ la fusión por choques fortuitos tarda unos miles de pasos. Contraste pedagógico con el preset anterior.' },
+  { id: 'couzin_enjambre', nombre: 'Zonas de Couzin: enjambre (2002)',
+    p: { N: 300, radioPercepcion: 150, radioAlineacion: 5, radioSeparacion: 15, pesoSeparacion: 2.0, pesoAlineacion: 1.0, pesoCohesion: 0.5, fuerzaMax: 0.1, velMin: 3.0, velMax: 3.0, campoVision: 270, mundoX: 600, mundoY: 600, mundoZ: 600, bordes: 'toroidal', pesoDormidero: 0.3, radioDormidero: 100, modoColor: 'rumbo' },
+    desc: 'Zona de orientación casi nula (R_ali ≪ R_sep), velocidad constante y un dormidero débil que lo mantiene centrado: enjambre cohesivo sin rumbo ni rotación comunes (φ y m bajos) — Couzin et al. 2002.' },
+  { id: 'couzin_toro', nombre: 'Zonas de Couzin: toro / molinete (2002, intento)',
+    p: { N: 300, radioPercepcion: 200, radioAlineacion: 20, radioSeparacion: 20, pesoSeparacion: 2.0, pesoAlineacion: 1.0, pesoCohesion: 1.0, fuerzaMax: 0.05, velMin: 3.0, velMax: 3.0, campoVision: 270, mundoX: 1000, mundoY: 1000, mundoZ: 1000, bordes: 'rebote', margen: 60, pesoDormidero: 0.3, radioDormidero: 200, modoColor: 'rumbo' },
+    desc: 'Intento de la fase «toro» de Couzin et al. 2002: zona de orientación intermedia (R_ali = R_sep = 20), velocidad constante, giro muy limitado (F_max 0,05) y un dormidero débil. En este modelo de Reynolds el molinete aparece de forma intermitente: en las pruebas, m medio ≈ 0,3–0,6 con picos de hasta 0,90 y rachas de hasta ~270 pasos con m ≥ 0,5, en sub-grupos que circulan en el mismo sentido alrededor del centro; compite con el grupo paralelo (la histéresis del paper). Mirá m en el HUD y probá variar R_ali y F_max.' },
+  { id: 'couzin_paralelo', nombre: 'Zonas de Couzin: grupo paralelo (2002)',
+    p: { N: 300, radioPercepcion: 120, radioAlineacion: 120, radioSeparacion: 20, pesoSeparacion: 2.0, pesoAlineacion: 1.2, pesoCohesion: 0.8, fuerzaMax: 0.1, velMin: 3.0, velMax: 3.0, campoVision: 270, mundoX: 600, mundoY: 600, mundoZ: 600, bordes: 'toroidal', modoColor: 'rumbo' },
+    desc: 'Zona de orientación amplia (R_ali = R), velocidad constante: grupo altamente paralelo (φ ≈ 1, m bajo) — Couzin et al. 2002.' },
+  { id: 'migracion', nombre: 'Migración guiada (Couzin et al. 2005)',
+    p: { N: 600, fraccionInformados: 10, pesoInformados: 0.6, acimutPreferido: 0, elevacionPreferida: 0, ruido: 0.2 },
+    desc: 'Un 10 % de individuos informados (naranja) con una dirección preferida guía a toda la bandada sin que el resto sepa quién está informado (Couzin, Krause, Franks y Levin 2005).' },
+  { id: 'transicion', nombre: 'Transición orden–desorden (Vicsek 1995)',
+    p: { N: 800, ruido: 3.0 },
+    desc: 'Ruido angular alto: fase desordenada (φ ≈ 0). Bajá η de a poco y mirá φ subir: la transición de fase de Vicsek et al. 1995.' },
+  { id: 'escuela', nombre: 'Escuela compacta',
+    p: { N: 600, pesoCohesion: 1.0, radioSeparacion: 35, pesoSeparacion: 2.5, pesoAlineacion: 1.3, radioPercepcion: 70, radioAlineacion: 70, velMax: 2.4, velMin: 1.5, fuerzaMax: 0.15, bordes: 'rebote', margen: 80 },
+    desc: 'Cardumen denso y lento con rebote en las paredes: cohesión y separación fuertes, giros ágiles.' },
+  { id: 'murmuracion', nombre: 'Murmuración fina (κ alto)',
+    p: { N: 800, radioPercepcion: 60, radioAlineacion: 60, anisotropiaVertical: 0.6, pesoSeparacion: 2.2, pesoAlineacion: 1.4, pesoCohesion: 1.0, ruido: 0.3, velMax: 3.8, velMin: 2.0, mundoZ: 300, modoColor: 'altura', seguirCoM: true, pesoDormidero: 0.3, radioDormidero: 200 },
+    desc: 'Anisotropía vertical alta y un dormidero débil: láminas horizontales delgadas que se deslizan sobre el centro (Ballerini et al. 2008: bandadas delgadas y paralelas al suelo).' },
+  { id: 'halcon', nombre: 'Ataque de halcón (Storms et al. 2019)',
+    p: Object.assign({}, BASE_ESTORNINOS, { N: 1200, pesoDormidero: 1.2, radioDormidero: 150, alturaPreferida: 0.5, pesoAltura: 0.15, bordes: 'rebote', margen: 80, halconActivo: true, objetivoHalcon: 'centro', velHalcon: 1.6, giroHalcon: 0.25, periodoAtaque: 900, radioMiedo: 250, pesoMiedo: 5.0, modoColor: 'velocidad' }),
+    desc: 'Un halcón autónomo ataca al centro de la bandada durante el 60 % de cada período y se retira al posadero: expansión súbita, vacuolas y reagrupamiento sobre el dormidero (Storms, Carere, Zoratto y Hemelrijk 2019).' }
+];
+
+/* Preset inicial: es lo que ve quien abre el simulador por primera vez y a lo que vuelve «Restablecer valores por defecto». */
+const PRESET_INICIAL_ID = 'estorninos_dormidero';
+const DEFAULTS = Object.freeze(Object.assign({}, BASE, PRESETS.find(pr => pr.id === PRESET_INICIAL_ID).p));
+
+/* Valida y recorta un objeto de parámetros arbitrario (importación); parte de `base` (estado actual). */
+function sanear(obj, base) {
+  const out = Object.assign({}, BASE, base || {});
+  let aplicados = 0;
+  if (!obj || typeof obj !== 'object') return { estado: out, aplicados };
+  for (const def of ESQUEMA) {
+    if (!(def.key in obj)) continue;
+    const v = obj[def.key];
+    if (def.tipo === 'rango') {
+      const num = Number(v);
+      if (!Number.isFinite(num)) continue;
+      out[def.key] = Math.min(def.max, Math.max(def.min, num)); aplicados++;
+    } else if (def.tipo === 'select') {
+      if (def.opciones.some(o => o[0] === v)) { out[def.key] = v; aplicados++; }
+    } else if (def.tipo === 'check') {
+      out[def.key] = !!v; aplicados++;
+    }
+  }
+  // Compatibilidad con JSON de la v2: allí «autoRotar: 0» significaba «sin rotación» (hoy es sólo la velocidad)
+  if (('autoRotar' in obj) && !('autoRotarActivo' in obj)) out.autoRotarActivo = Number(obj.autoRotar) > 0;
+  return { estado: out, aplicados };
+}
+
+/* =====================================================================
+   Interfaz: enlace de controles, cámara, renderizadores y bucle de animación
+   ===================================================================== */
+const formatos = {};
+function fmt(v, dec) {
+  if (!formatos[dec]) formatos[dec] = new Intl.NumberFormat('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  return formatos[dec].format(v);
+}
+
+function iniciar() {
+  const $ = id => document.getElementById(id);
+  const estado = Object.assign({}, DEFAULTS);
+  const MAXN = 3000, K_ESTELA = 10;
+  const sim = new Boids(MAXN);
+  const cam = new Camara();
+  const estelas = new Estelas(MAXN, K_ESTELA);
+  const escenario = $('escenario');
+  let lienzo = $('lienzo');
+  const spark = $('spark');
+  const sctx = spark.getContext('2d');
+  const controles = {};
+  let pausado = false;
+  let W = 800, H = 600, dpr = 1;
+  let fps = 0, ultimoT = 0, cuadro = 0;
+  // Historia de φ y de m para el sparkline (anillos de 300 muestras)
+  const HIST = 300;
+  const hist = new Float32Array(HIST), histM = new Float32Array(HIST);
+  let histLen = 0, histPos = 0;
+  // Tema (preferencia de la interfaz: no forma parte de `estado`, no se exporta, los presets no la tocan)
+  const CLAVE_TEMA = 'boids3d.tema';
+  let tema = 'claro';   // por defecto claro; se respeta la preferencia guardada en este navegador
+  try { const t = window.localStorage && window.localStorage.getItem(CLAVE_TEMA); if (t && TEMAS[t]) tema = t; } catch (e) { /* sin almacenamiento */ }
+  // Colores por ave y descripción de la escena compartida por ambos renderizadores
+  const colRGB = new Float32Array(MAXN * 3), colIdx = new Uint16Array(MAXN);
+  const marcadores = [], anillos = [];
+  const escena = { sim, cam, estado, colRGB, colIdx, tablaStr: PALETAS[tema].rumbo.str, estelas, marcadores, anillos, tema: TEMAS[tema] };
+  let render = null, modoRenderActual = null;
+  let presetActual = PRESET_INICIAL_ID;   // preset que se muestra en el selector (se vacía al importar un JSON)
+  let arrastre = null;           // { x0, y0, x, y, pan, movido, id }
+  const tmp3 = new Float64Array(3);
+
+  /* ---- Construcción de controles a partir del esquema ---- */
+  for (const def of ESQUEMA) {
+    const cont = $('sec-' + def.sec);
+    const id = 'ctl-' + def.key;
+    let wrap, input, output = null;
+    if (def.tipo === 'rango') {
+      wrap = document.createElement('div'); wrap.className = 'ctl';
+      const label = document.createElement('label'); label.htmlFor = id; label.textContent = def.label;
+      output = document.createElement('output'); output.htmlFor = id;
+      input = document.createElement('input'); input.type = 'range'; input.id = id;
+      input.min = String(def.min); input.max = String(def.max); input.step = String(def.step);
+      wrap.appendChild(label); wrap.appendChild(output); wrap.appendChild(input);
+    } else if (def.tipo === 'select') {
+      wrap = document.createElement('div'); wrap.className = 'ctl';
+      const label = document.createElement('label'); label.htmlFor = id; label.textContent = def.label;
+      input = document.createElement('select'); input.id = id;
+      for (const [val, txt] of def.opciones) {
+        const o = document.createElement('option'); o.value = val; o.textContent = txt; input.appendChild(o);
+      }
+      wrap.appendChild(label); wrap.appendChild(input);
+    } else {
+      wrap = document.createElement('label'); wrap.className = 'check'; wrap.htmlFor = id;
+      input = document.createElement('input'); input.type = 'checkbox'; input.id = id;
+      const span = document.createElement('span'); span.textContent = def.label;
+      wrap.appendChild(input); wrap.appendChild(span);
+    }
+    wrap.title = def.tip; input.title = def.tip;
+    input.setAttribute('autocomplete', 'off');   // el navegador no debe restaurar valores viejos al recargar
+    cont.appendChild(wrap);
+    controles[def.key] = { def, input, output };
+    input.addEventListener(def.tipo === 'rango' ? 'input' : 'change', () => {
+      if (def.tipo === 'rango') estado[def.key] = Number(input.value);
+      else if (def.tipo === 'select') estado[def.key] = input.value;
+      else estado[def.key] = input.checked;
+      actualizarSalida(def.key);
+      aplicarEstado();
+      if (def.key === 'autoRotarActivo') refrescarRotacion();
+    });
+  }
+
+  function actualizarSalida(key) {
+    const c = controles[key];
+    if (c.def.tipo === 'rango' && c.output) c.output.textContent = fmt(estado[key], c.def.dec) + c.def.unidad;
+  }
+
+  /* Vuelca `estado` a todos los controles (la interfaz nunca manda: siempre refleja al estado). */
+  function refrescarUI() {
+    for (const def of ESQUEMA) {
+      const c = controles[def.key];
+      if (def.tipo === 'rango') c.input.value = String(estado[def.key]);
+      else if (def.tipo === 'select') c.input.value = estado[def.key];
+      else c.input.checked = !!estado[def.key];
+      actualizarSalida(def.key);
+    }
+    refrescarRotacion();
+    selPresets.value = presetActual;
+    mostrarDescPreset(PRESETS.find(pr => pr.id === presetActual) || null);
+  }
+
+  function aplicarEstado() {
+    const wxAnt = sim.wx, wyAnt = sim.wy, wzAnt = sim.wz;
+    sim.setParams(estado);
+    if (estado.modoMouse !== 'depredador') sim.marcadorActivo = false;
+    if (sim.wx !== wxAnt || sim.wy !== wyAnt || sim.wz !== wzAnt) cam.encuadrar(sim.wx, sim.wy, sim.wz);
+    escena.tablaStr = (PALETAS[tema][estado.modoColor] || PALETAS[tema].uniforme).str;
+    $('hud-focal').hidden = !estado.mostrarPercepcion;
+    if (render && estado.renderizador !== modoRenderActual) cambiarRenderizador(estado.renderizador);
+  }
+
+  /* ---- Auto-rotación: casilla, botón del panel, botón de la barra y tecla O comparten el mismo estado ---- */
+  const btnRotacion = $('btnRotacion'), btnRotacion2 = $('btnRotacion2');
+  function refrescarRotacion() {
+    const activo = !!estado.autoRotarActivo;
+    const c = controles.autoRotarActivo; if (c) c.input.checked = activo;
+    btnRotacion.setAttribute('aria-pressed', activo ? 'true' : 'false');
+    btnRotacion2.setAttribute('aria-pressed', activo ? 'true' : 'false');
+    btnRotacion2.textContent = activo ? 'Detener rotación' : 'Reanudar rotación';
+  }
+  function setRotacion(v) { estado.autoRotarActivo = !!v; refrescarRotacion(); }
+  btnRotacion.addEventListener('click', () => setRotacion(!estado.autoRotarActivo));
+  btnRotacion2.addEventListener('click', () => setRotacion(!estado.autoRotarActivo));
+
+  /* ---- Tema claro / oscuro: preferencia guardada en localStorage; no recrea el renderizador ---- */
+  const selTema = $('selTema'), btnTema = $('btnTema');
+  function aplicarTema(t, guardar) {
+    if (!TEMAS[t]) t = 'claro';
+    tema = t;
+    escena.tema = TEMAS[t];
+    escena.tablaStr = (PALETAS[t][estado.modoColor] || PALETAS[t].uniforme).str;
+    const html = document.documentElement;
+    if (html) { if (t === 'claro') html.setAttribute('data-tema', 'claro'); else html.removeAttribute('data-tema'); }
+    const meta = document.querySelector ? document.querySelector('meta[name="color-scheme"]') : null;
+    if (meta) meta.setAttribute('content', t === 'claro' ? 'light' : 'dark');
+    selTema.value = t;
+    btnTema.setAttribute('aria-pressed', t === 'claro' ? 'true' : 'false');
+    if (guardar) { try { window.localStorage && window.localStorage.setItem(CLAVE_TEMA, t); } catch (e) { /* sin almacenamiento */ } }
+    if (render) { dibujar(); dibujarSpark(); }
+  }
+  selTema.addEventListener('change', () => aplicarTema(selTema.value, true));
+  btnTema.addEventListener('click', () => aplicarTema(tema === 'claro' ? 'oscuro' : 'claro', true));
+
+  function mensaje(txt, esError) {
+    const m = $('msg');
+    m.textContent = txt;
+    m.className = 'msg' + (esError ? ' error' : '');
+    if (txt) setTimeout(() => { if (m.textContent === txt) m.textContent = ''; }, 5000);
+  }
+
+  /* ---- Presets ---- */
+  const selPresets = $('presets');
+  {
+    const o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Elegí un preset…'; selPresets.appendChild(o0);
+    for (const pr of PRESETS) {
+      const o = document.createElement('option'); o.value = pr.id; o.textContent = pr.nombre; selPresets.appendChild(o);
+    }
+  }
+  const presetDesc = $('preset-desc');
+  function mostrarDescPreset(pr) {
+    presetDesc.textContent = pr ? pr.desc : '';
+    presetDesc.hidden = !pr;
+  }
+  selPresets.addEventListener('change', () => {
+    const pr = PRESETS.find(x => x.id === selPresets.value);
+    if (!pr) { mostrarDescPreset(null); return; }
+    Object.assign(estado, BASE, pr.p);
+    presetActual = pr.id;
+    refrescarUI(); aplicarEstado(); reiniciarSim();
+    mostrarDescPreset(pr);
+    mensaje('Preset aplicado: ' + pr.nombre, false);
+  });
+
+  /* ---- Botones ---- */
+  const btnPausa = $('btnPausa');
+  function setPausa(v) {
+    pausado = v;
+    btnPausa.textContent = pausado ? 'Reanudar' : 'Pausar';
+    btnPausa.setAttribute('aria-pressed', pausado ? 'true' : 'false');
+    $('hud-estado').hidden = !pausado;
+  }
+  function unPaso() { setPausa(true); sim.step(); registrarPhi(); dibujar(); actualizarMetricas(); }
+  btnPausa.addEventListener('click', () => setPausa(!pausado));
+  $('btnPaso').addEventListener('click', unPaso);
+  function reiniciarSim() {
+    sim.reiniciar(); histLen = 0; histPos = 0; dibujar(); actualizarMetricas();
+  }
+  $('btnReiniciar').addEventListener('click', reiniciarSim);
+  function reiniciarCamara() { cam.reiniciar(sim.wx, sim.wy, sim.wz); }
+  $('btnCamara').addEventListener('click', reiniciarCamara);
+  $('btnCamara2').addEventListener('click', reiniciarCamara);
+  $('btnDefaults').addEventListener('click', () => {
+    Object.assign(estado, DEFAULTS); presetActual = PRESET_INICIAL_ID; refrescarUI(); aplicarEstado();
+    mensaje('Valores por defecto restablecidos.', false);
+  });
+
+  /* ---- Exportar / importar JSON ---- */
+  function jsonActual() { return JSON.stringify(estado, null, 2); }
+  $('btnCopiar').addEventListener('click', () => {
+    const txt = jsonActual();
+    $('txtJson').value = txt;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(
+        () => mensaje('Parámetros copiados al portapapeles.', false),
+        () => mensaje('No se pudo acceder al portapapeles; el JSON quedó en el cuadro de texto.', true));
+    } else {
+      mensaje('Portapapeles no disponible; el JSON quedó en el cuadro de texto.', true);
+    }
+  });
+  $('btnDescargar').addEventListener('click', () => {
+    const blob = new Blob([jsonActual()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'parametros_boids_3d.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    mensaje('Descarga iniciada: parametros_boids_3d.json', false);
+  });
+  function importarTexto(txt) {
+    let obj;
+    try { obj = JSON.parse(txt); }
+    catch (e) { mensaje('JSON inválido: ' + e.message, true); return; }
+    const r = sanear(obj, estado);
+    presetActual = '';
+    if (r.aplicados === 0) { mensaje('El JSON no contiene parámetros reconocidos.', true); return; }
+    Object.assign(estado, r.estado); selPresets.value = ''; mostrarDescPreset(null);
+    refrescarUI(); aplicarEstado();
+    mensaje('Se aplicaron ' + r.aplicados + ' parámetros.', false);
+  }
+  $('btnAplicarJson').addEventListener('click', () => importarTexto($('txtJson').value));
+  $('archivoJson').addEventListener('change', (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const lector = new FileReader();
+    lector.addEventListener('load', () => { $('txtJson').value = String(lector.result); importarTexto(String(lector.result)); });
+    lector.addEventListener('error', () => mensaje('No se pudo leer el archivo.', true));
+    lector.readAsText(f);
+    ev.target.value = '';
+  });
+
+  /* ---- Panel plegable en pantallas chicas ---- */
+  const btnPanel = $('btnPanel');
+  function togglePanel(force) {
+    const abierto = typeof force === 'boolean' ? force : !document.body.classList.contains('panel-abierto');
+    document.body.classList.toggle('panel-abierto', abierto);
+    btnPanel.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+  }
+  btnPanel.addEventListener('click', () => togglePanel());
+
+  /* ---- Teclado ---- */
+  document.addEventListener('keydown', (ev) => {
+    const t = ev.target;
+    const tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'select' || tag === 'textarea' || tag === 'button' || tag === 'summary') return;
+    if (ev.key === ' ') { ev.preventDefault(); setPausa(!pausado); }
+    else if (ev.key === 'n' || ev.key === 'N') unPaso();
+    else if (ev.key === 'r' || ev.key === 'R') reiniciarSim();
+    else if (ev.key === 'c' || ev.key === 'C') reiniciarCamara();
+    else if (ev.key === 'o' || ev.key === 'O') setRotacion(!estado.autoRotarActivo);
+    else if (ev.key === 'p' || ev.key === 'P') togglePanel();
+  });
+
+  /* ---- Puntero sobre la escena: orbitar / desplazar / zoom / cursor 3D / clic ----
+     Arrastrar (≥ 4 px) orbita (o desplaza con Shift o botón derecho); mientras se arrastra el cursor
+     no influye en las aves. Un clic sin arrastre coloca o quita el depredador fijo. */
+  function posPuntero(c, ev) {
+    const r = c.getBoundingClientRect();
+    return [ev.clientX - r.left, ev.clientY - r.top];
+  }
+  function actualizarCursor(x, y) {
+    cam.unproyectar(x, y, tmp3);
+    sim.cursorX = clamp(tmp3[0], 0, sim.wx); sim.cursorY = clamp(tmp3[1], 0, sim.wy); sim.cursorZ = clamp(tmp3[2], 0, sim.wz);
+    sim.cursorActivo = true;
+  }
+  function clic(x, y) {
+    if (estado.modoMouse !== 'depredador') {
+      mensaje('Para colocar un depredador fijo, elegí «Depredador (huir)» como rol del cursor.', true);
+      return;
+    }
+    if (sim.marcadorActivo && cam.proyectar(sim.marcadorX, sim.marcadorY, sim.marcadorZ, tmp3) && Math.hypot(tmp3[0] - x, tmp3[1] - y) < 18) {
+      sim.marcadorActivo = false; mensaje('Depredador fijo quitado.', false);
+    } else {
+      cam.unproyectar(x, y, tmp3);
+      sim.marcadorX = clamp(tmp3[0], 0, sim.wx); sim.marcadorY = clamp(tmp3[1], 0, sim.wy); sim.marcadorZ = clamp(tmp3[2], 0, sim.wz);
+      sim.marcadorActivo = true; mensaje('Depredador fijo colocado.', false);
+    }
+  }
+  function vincularPuntero(c) {
+    c.addEventListener('pointerdown', (ev) => {
+      const [x, y] = posPuntero(c, ev);
+      arrastre = { x0: x, y0: y, x, y, pan: ev.button === 2 || !!ev.shiftKey, movido: false, boton: ev.button, id: ev.pointerId };
+      try { if (c.setPointerCapture && ev.pointerId !== undefined) c.setPointerCapture(ev.pointerId); } catch (e) { /* sin captura */ }
+      actualizarCursor(x, y);
+      if (ev.preventDefault) ev.preventDefault();
+    });
+    c.addEventListener('pointermove', (ev) => {
+      const [x, y] = posPuntero(c, ev);
+      if (arrastre) {
+        if (!arrastre.movido && Math.hypot(x - arrastre.x0, y - arrastre.y0) >= 4) {
+          arrastre.movido = true; c.classList.add('arrastrando');
+        }
+        if (arrastre.movido) {
+          if (arrastre.pan) cam.paneo(x - arrastre.x, y - arrastre.y); else cam.orbitar(x - arrastre.x, y - arrastre.y);
+          sim.cursorActivo = false;
+        }
+        arrastre.x = x; arrastre.y = y;
+      } else actualizarCursor(x, y);
+    });
+    const soltar = (ev, cancelado) => {
+      if (!arrastre) return;
+      const [x, y] = posPuntero(c, ev);
+      const a = arrastre; arrastre = null;
+      c.classList.remove('arrastrando');
+      try { if (c.releasePointerCapture && a.id !== undefined) c.releasePointerCapture(a.id); } catch (e) { /* sin captura */ }
+      if (!cancelado && !a.movido && a.boton === 0 && !a.pan) clic(x, y);
+      if (!cancelado) actualizarCursor(x, y); else sim.cursorActivo = false;
+    };
+    c.addEventListener('pointerup', (ev) => soltar(ev, false));
+    c.addEventListener('pointercancel', (ev) => soltar(ev, true));
+    c.addEventListener('pointerleave', () => { if (!arrastre) sim.cursorActivo = false; });
+    c.addEventListener('wheel', (ev) => {
+      if (ev.preventDefault) ev.preventDefault();
+      let d = ev.deltaY || 0;
+      if (ev.deltaMode === 1) d *= 16; else if (ev.deltaMode === 2) d *= 300;
+      d = clamp(d, -240, 240);
+      cam.zoom(Math.exp(d * 0.0012));
+    }, { passive: false });
+    c.addEventListener('contextmenu', (ev) => { if (ev.preventDefault) ev.preventDefault(); });
+  }
+
+  /* ---- Tamaño y alta densidad de píxeles ----
+     El tamaño del escenario está determinado únicamente por el viewport (grilla con fila y columnas
+     fijas, lienzo posicionado en absoluto). Por eso no hace falta un ResizeObserver: el bitmap se
+     sincroniza con el tamaño CSS al inicio de cada cuadro (comparación barata, sin trabajo si nada
+     cambió) y ante el evento resize de la ventana. Al no observar el contenedor, es imposible que
+     el propio ajuste del canvas realimente a un observador. */
+  function redimensionar() {
+    const w = Math.max(50, escenario.clientWidth || 800);
+    const h = Math.max(50, escenario.clientHeight || 600);
+    const nuevoDpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+    const sw = Math.max(50, spark.clientWidth || 300), sh = 64;
+    const lw = Math.round(w * nuevoDpr), lh = Math.round(h * nuevoDpr);
+    const spw = Math.round(sw * nuevoDpr), sph = Math.round(sh * nuevoDpr);
+    const lienzoIgual = w === W && h === H && nuevoDpr === dpr && lienzo.width === lw && lienzo.height === lh;
+    const sparkIgual = nuevoDpr === dpr && spark.width === spw && spark.height === sph;
+    if (lienzoIgual && sparkIgual) return;
+    dpr = nuevoDpr;
+    if (!lienzoIgual) {
+      W = w; H = h;
+      if (render) render.resize(W, H, dpr);
+    }
+    if (!sparkIgual) {
+      spark.width = spw; spark.height = sph;
+      sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      spark._w = sw; spark._h = sh;
+    }
+  }
+  let resizePendiente = 0;
+  function solicitarRedimension() {
+    if (resizePendiente) return;
+    resizePendiente = requestAnimationFrame(() => {
+      resizePendiente = 0;
+      redimensionar();
+    });
+  }
+  window.addEventListener('resize', solicitarRedimension, { passive: true });
+
+  /* ---- Renderizadores: selección robusta con canvas nuevo por intento ----
+     Un canvas al que ya se le pidió un tipo de contexto no puede cambiar de tipo, por eso cada
+     renderizador recibe un <canvas> recién creado que reemplaza al anterior en el DOM. */
+  function nuevoLienzo() {
+    const c = document.createElement('canvas');
+    c.id = 'lienzo';
+    c.setAttribute('role', 'img');
+    c.setAttribute('aria-label', 'Simulación 3D de una bandada de boids');
+    return c;
+  }
+  function instalarLienzo(c) {
+    escenario.replaceChild(c, lienzo);
+    lienzo = c;
+    vincularPuntero(c);
+  }
+  function crearRenderizador(modo) {
+    let r = null;
+    if (modo !== 'canvas2d') {
+      const c = nuevoLienzo();
+      try {
+        r = new RenderWebGL2(c, MAXN, K_ESTELA);
+        r.resize(W, H, dpr);
+        prepararEscena();
+        r.draw(escena);   // primer cuadro de prueba
+        if (r.perdido) throw new Error('el contexto se perdió inmediatamente');
+      } catch (e) {
+        console.warn('WebGL2 no disponible o falló al iniciar (' + (e && e.message ? e.message : String(e)) + '); se usa el renderizador Canvas 2D.');
+        if (r) { try { r.dispose(); } catch (e2) { /* ignorar */ } }
+        r = null;
+        if (modo === 'webgl2') mensaje('WebGL2 no está disponible en este navegador; se usa Canvas 2D.', true);
+      }
+      if (r) { instalarLienzo(c); return r; }
+    }
+    const c2 = nuevoLienzo();
+    r = new RenderCanvas2D(c2, MAXN, K_ESTELA);
+    r.resize(W, H, dpr);
+    instalarLienzo(c2);
+    return r;
+  }
+  function cambiarRenderizador(modo) {
+    if (render) { try { render.dispose(); } catch (e) { /* ignorar */ } }
+    render = crearRenderizador(modo);
+    modoRenderActual = modo;
+    const badge = $('hud-render');
+    badge.textContent = render.nombre;
+    badge.classList.toggle('suave', render.nombre !== 'WebGL2');
+    badge.title = 'Renderizador activo: ' + render.nombre + (render.nombre === 'WebGL2' ? ' (instancias, iluminación plana, niebla)' : ' (proyección por software)');
+  }
+
+  /* ---- Escena: colores por ave y marcadores ---- */
+  function prepararEscena() {
+    const n = sim.n, modo = estado.modoColor, T = TEMAS[tema], pal = PALETAS[tema][modo] || PALETAS[tema].uniforme, rgb = pal.rgb;
+    const vx = sim.vx, vy = sim.vy, vz = sim.vz, pz = sim.pz, inf = sim.informado, focal = sim.focal;
+    const vmin = sim.vmin, rangoV = Math.max(1e-6, sim.vmax - sim.vmin), invZ = 1 / Math.max(1e-6, sim.wz);
+    for (let i = 0; i < n; i++) {
+      let b;
+      if (i === focal) b = NB + 1;
+      else if (inf[i] === 1) b = NB;
+      else if (modo === 'rumbo') { b = Math.floor((Math.atan2(vy[i], vx[i]) + Math.PI) / TAU * NB); if (b >= NB) b = NB - 1; else if (b < 0) b = 0; }
+      else if (modo === 'velocidad') { const s = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]); let t = (s - vmin) / rangoV; if (t < 0) t = 0; else if (t > 1) t = 1; b = Math.round(t * (NB - 1)); }
+      else if (modo === 'altura') { let t = pz[i] * invZ; if (t < 0) t = 0; else if (t > 1) t = 1; b = Math.round(t * (NB - 1)); }
+      else b = 0;
+      colIdx[i] = b;
+      colRGB[i * 3] = rgb[b * 3]; colRGB[i * 3 + 1] = rgb[b * 3 + 1]; colRGB[i * 3 + 2] = rgb[b * 3 + 2];
+    }
+    marcadores.length = 0;
+    if (estado.modoMouse === 'depredador') {
+      if (sim.marcadorActivo) marcadores.push({ x: sim.marcadorX, y: sim.marcadorY, z: sim.marcadorZ, escala: 9, rgb: T.rgbDepredador, radio: estado.radioMiedo, alfa: 0.35, cruz: true, halcon: false });
+      if (sim.cursorActivo) marcadores.push({ x: sim.cursorX, y: sim.cursorY, z: sim.cursorZ, escala: 6, rgb: T.rgbDepredador, radio: estado.radioMiedo, alfa: 0.35, cruz: false, halcon: false });
+    } else if ((estado.modoMouse === 'atraer' || (estado.informadosCursor && estado.fraccionInformados > 0)) && sim.cursorActivo) {
+      marcadores.push({ x: sim.cursorX, y: sim.cursorY, z: sim.cursorZ, escala: 6, rgb: T.rgbVerde, radio: 0, alfa: 0, cruz: false, halcon: false });
+    }
+    // Halcón autónomo: rombo rojo grande con su radio de miedo (alambre, alfa baja)
+    if (estado.halconActivo) marcadores.push({ x: sim.hX, y: sim.hY, z: sim.hZ, escala: 18, rgb: T.rgbDepredador, radio: estado.radioMiedo, alfa: 0.2, cruz: false, halcon: true });
+    if (estado.mostrarCoM && n > 0) marcadores.push({ x: sim.comX, y: sim.comY, z: sim.comZ, escala: 6, rgb: T.rgbAcento, radio: 0, alfa: 0, cruz: true, halcon: false });
+    // Dormidero: anillo a la altura preferida y otro más tenue en el piso
+    anillos.length = 0;
+    if (estado.pesoDormidero > 0) {
+      const cx = sim.wx * 0.5, cy = sim.wy * 0.5, R = sim.rDorm;
+      anillos.push({ x: cx, y: cy, z: sim.fracAltura * sim.wz, R, rgb: T.rgbVerde, alfa: 0.55 });
+      anillos.push({ x: cx, y: cy, z: 0, R, rgb: T.rgbVerde, alfa: 0.22 });
+    }
+  }
+
+  function dibujar() {
+    if (render.perdido) {
+      console.warn('Se perdió el contexto WebGL2; se vuelve a crear el renderizador.');
+      cambiarRenderizador(estado.renderizador);
+    }
+    prepararEscena();
+    cam.actualizar(W, H, estado.fov);
+    try {
+      render.draw(escena);
+    } catch (e) {
+      if (render.nombre === 'WebGL2') {
+        console.warn('Falló el renderizador WebGL2 durante el dibujo (' + (e && e.message ? e.message : String(e)) + '); se pasa a Canvas 2D.');
+        cambiarRenderizador('canvas2d');
+        render.draw(escena);
+      } else throw e;
+    }
+  }
+
+  function actualizarCamara(dtReal) {
+    if (estado.autoRotarActivo && estado.autoRotar > 0 && !arrastre) cam.yaw += estado.autoRotar * DEG * dtReal;
+    if (estado.seguirCoM && sim.n > 0) {
+      const a = Math.min(1, 5 * dtReal);
+      cam.tx += (sim.comX - cam.tx) * a; cam.ty += (sim.comY - cam.ty) * a; cam.tz += (sim.comZ - cam.tz) * a;
+    }
+  }
+
+  /* ---- Métricas ---- */
+  function registrarPhi() {
+    hist[histPos] = sim.phi; histM[histPos] = sim.momentoAngular; histPos = (histPos + 1) % HIST;
+    if (histLen < HIST) histLen++;
+  }
+
+  function trazarSerie(buf, w, h, estilo) {
+    sctx.strokeStyle = estilo; sctx.lineWidth = 1.5;
+    sctx.beginPath();
+    const ini = (histPos - histLen + HIST) % HIST;
+    for (let t = 0; t < histLen; t++) {
+      const v = buf[(ini + t) % HIST];
+      const x = t / (HIST - 1) * w, y = h - 4 - v * (h - 8);
+      if (t === 0) sctx.moveTo(x, y); else sctx.lineTo(x, y);
+    }
+    sctx.stroke();
+  }
+  function dibujarSpark() {
+    const w = spark._w || 300, h = spark._h || 64, css = TEMAS[tema].css;
+    sctx.fillStyle = css.fondo; sctx.fillRect(0, 0, w, h);
+    sctx.strokeStyle = css.grilla; sctx.lineWidth = 1;
+    sctx.beginPath();
+    for (const f of [0.25, 0.5, 0.75]) { const y = h - f * (h - 8) - 4; sctx.moveTo(0, y); sctx.lineTo(w, y); }
+    sctx.stroke();
+    // Leyenda: φ (acento) · m (naranja)
+    sctx.font = '11px ui-monospace, Consolas, Menlo, monospace'; sctx.textBaseline = 'top';
+    sctx.fillStyle = css.phi; sctx.fillText('φ', 6, 4);
+    sctx.fillStyle = css.m; sctx.fillText('m', 20, 4);
+    if (histLen < 2) return;
+    trazarSerie(histM, w, h, css.m);
+    trazarSerie(hist, w, h, css.phi);
+  }
+
+  function actualizarMetricas() {
+    $('hud-phi').textContent = fmt(sim.phi, 2);
+    $('hud-m').textContent = fmt(sim.momentoAngular, 2);
+    $('hud-n').textContent = String(sim.n);
+    $('hud-grupos').textContent = String(sim.grupos);
+    $('hud-fps').textContent = String(Math.round(fps));
+    $('hud-pasos').textContent = String(sim.pasos);
+    $('hud-focal-n').textContent = String(sim.focalCount);
+    $('m-phi').textContent = fmt(sim.phi, 3);
+    $('m-m').textContent = fmt(sim.momentoAngular, 3);
+    $('m-dist').textContent = sim.distMediaVecino > 0 ? fmt(sim.distMediaVecino, 1) + ' u' : '—';
+    $('m-vmed').textContent = sim.n > 0 ? fmt(sim.velMedia, 2) + ' u/paso' : '—';
+    $('m-grupos').textContent = String(sim.grupos);
+    $('m-mayor').textContent = sim.n > 0 && sim.pasos > 0 ? fmt(sim.fraccionMayor, 3) : '—';
+    $('m-vec').textContent = fmt(sim.vecinosPromedio, 1);
+    $('m-forma').textContent = sim.formaValida ? ('1 : ' + fmt(sim.formaR2, 2) + ' : ' + fmt(sim.formaR3, 2) + ' · ' + sim.formaEtiqueta) : '—';
+    $('m-com').textContent = sim.n > 0 ? (fmt(sim.comX, 0) + ' · ' + fmt(sim.comY, 0) + ' · ' + fmt(sim.comZ, 0)) : '—';
+    $('m-fps').textContent = String(Math.round(fps));
+    $('m-n').textContent = String(sim.n);
+    $('m-pasos').textContent = String(sim.pasos);
+    dibujarSpark();
+  }
+
+  /* ---- Bucle principal (un paso de dt fijo por cuadro) ---- */
+  function cuadroAnim(t) {
+    let dtReal = 1 / 60;
+    if (ultimoT > 0) {
+      const d = t - ultimoT;
+      if (d > 0) { fps = fps ? fps * 0.9 + (1000 / d) * 0.1 : 1000 / d; dtReal = Math.min(0.1, d / 1000); }
+    }
+    ultimoT = t;
+    redimensionar(); // sincroniza bitmap ↔ tamaño CSS ↔ devicePixelRatio; no hace nada si no cambió
+    if (!pausado) { sim.step(); registrarPhi(); }
+    actualizarCamara(dtReal);
+    dibujar();
+    if ((cuadro++ % 5) === 0) actualizarMetricas();
+    requestAnimationFrame(cuadroAnim);
+  }
+
+  /* ---- Arranque ---- */
+  refrescarUI();
+  aplicarTema(tema, false);
+  // Al recargar, el navegador puede restaurar en los controles los valores de la sesión anterior DESPUÉS de que este
+  // script los fijó, dejando la interfaz distinta del estado aplicado (p. ej. «Rebote» visible con mundo toroidal).
+  // Además de autocomplete="off", se vuelve a volcar el estado a la interfaz cuando la página termina de cargar.
+  const resincronizar = () => { refrescarUI(); if (selTema) selTema.value = tema; };
+  window.addEventListener('load', resincronizar);
+  window.addEventListener('pageshow', resincronizar);   // antes de crear el renderizador: la escena ya lleva el tema guardado
+  sim.setParams(estado);
+  cam.reiniciar(sim.wx, sim.wy, sim.wz);
+  sim.reiniciar();
+  redimensionar();
+  cam.actualizar(W, H, estado.fov);
+  cambiarRenderizador(estado.renderizador);
+  aplicarEstado();
+  setPausa(false);
+  actualizarMetricas();
+  requestAnimationFrame(cuadroAnim);
+}
+
+iniciar();
+</script>
+</body>
+</html>

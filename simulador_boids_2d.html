@@ -1,0 +1,1247 @@
+﻿<!DOCTYPE html>
+<html lang="es-AR" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Simulador de boids — bandada emergente (Reynolds, Ballerini, Couzin, Vicsek)</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0b0f17;
+  --panel: #111827;
+  --panel2: #0e1420;
+  --control: #182234;
+  --borde: #243044;
+  --texto: #e6edf3;
+  --texto2: #9fb0c3;
+  --acento: #4cc9f0;
+  --verde: #7ee787;
+  --naranja: #ff9f43;
+  --rojo: #ff4d4f;
+  --radio: 10px;
+  --fuente: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--texto);
+  font-family: var(--fuente);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+.app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  /* Fila de tamaño fijo: el alto del escenario depende solo del viewport, nunca del contenido. */
+  grid-template-rows: minmax(0, 1fr);
+  block-size: 100vh;
+  block-size: 100dvh;
+  overflow: hidden;
+}
+.escenario { position: relative; min-inline-size: 0; min-block-size: 0; overflow: hidden; background: var(--bg); }
+#lienzo {
+  /* Fuera del flujo: el tamaño del bitmap (atributos width/height) no puede alterar el layout
+     del contenedor, lo que evita el bucle "cambio de tamaño → redibujo → cambio de tamaño". */
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+.hud {
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-start: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  background: rgba(11, 15, 23, 0.72);
+  border: 1px solid var(--borde);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  pointer-events: none;
+  max-inline-size: calc(100% - 20px);
+}
+.hud-k { color: var(--texto2); }
+.badge {
+  background: var(--naranja);
+  color: #1a1206;
+  border-radius: 6px;
+  padding: 0 6px;
+  font-weight: 700;
+}
+.barra {
+  position: absolute;
+  inset-block-end: 10px;
+  inset-inline-start: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  max-inline-size: calc(100% - 20px);
+}
+.barra .sel { display: inline-flex; align-items: center; gap: 6px; color: var(--texto2); background: rgba(11,15,23,0.72); border-radius: 8px; padding-inline-start: 8px; }
+.panel {
+  background: var(--panel);
+  border-inline-start: 1px solid var(--borde);
+  overflow-y: auto;
+  padding: 14px;
+  scrollbar-width: thin;
+}
+.panel-cab h1 { font-size: 18px; margin: 0 0 4px; }
+.panel-cab p { margin: 0 0 12px; color: var(--texto2); font-size: 13px; }
+details {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  margin-block-end: 10px;
+  background: var(--panel2);
+}
+summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--texto2); font-family: var(--mono); }
+details[open] summary::after { content: "−"; }
+.sec { padding: 2px 12px 12px; display: grid; gap: 10px; }
+.ctl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  align-items: center;
+}
+.ctl label { color: var(--texto2); }
+.ctl output { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--texto); }
+.ctl input[type=range] { grid-column: 1 / -1; inline-size: 100%; accent-color: var(--acento); margin: 0; }
+.ctl select { grid-column: 1 / -1; }
+.check { display: flex; gap: 8px; align-items: center; color: var(--texto2); }
+.check input { accent-color: var(--acento); inline-size: 16px; block-size: 16px; margin: 0; }
+select, button, textarea, input[type=file] {
+  font: inherit;
+  color: var(--texto);
+  background: var(--control);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+button { cursor: pointer; }
+button:hover { border-color: var(--acento); }
+button.primario { background: var(--acento); color: #06202a; border-color: var(--acento); font-weight: 600; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
+textarea { inline-size: 100%; min-block-size: 110px; font-family: var(--mono); font-size: 12px; resize: vertical; }
+.acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-block-end: 10px; }
+.nota { color: var(--texto2); font-size: 12.5px; margin: 0; }
+.msg { color: var(--verde); font-size: 12.5px; min-block-size: 1.2em; margin: 4px 0 0; }
+.msg.error { color: var(--rojo); }
+.metricas { padding: 2px 12px 12px; }
+.metricas dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 0; }
+.metricas dt { color: var(--texto2); }
+.metricas dd { margin: 0; font-family: var(--mono); text-align: end; font-variant-numeric: tabular-nums; }
+#spark { inline-size: 100%; block-size: 64px; display: block; margin-block-start: 8px; background: var(--bg); border-radius: 6px; border: 1px solid var(--borde); }
+.acerca { padding: 0 12px 12px; color: var(--texto2); font-size: 13px; }
+.acerca h3 { font-size: 13.5px; color: var(--texto); margin: 12px 0 4px; }
+.acerca p { margin: 0 0 8px; }
+.acerca pre {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  background: var(--bg);
+  color: var(--texto);
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0 0 8px;
+}
+.acerca ul { padding-inline-start: 18px; margin: 0; }
+.acerca li { margin-block-end: 4px; }
+kbd { font-family: var(--mono); background: var(--control); border: 1px solid var(--borde); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+.solo-movil { display: none; }
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .panel {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-end: 0;
+    inline-size: min(92vw, 390px);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    z-index: 5;
+    box-shadow: 0 0 30px rgba(0,0,0,0.6);
+  }
+  body.panel-abierto .panel { transform: none; }
+  .solo-movil {
+    display: inline-block;
+    position: absolute;
+    inset-block-start: 10px;
+    inset-inline-end: 10px;
+    z-index: 6;
+  }
+  body.panel-abierto .solo-movil { inset-inline-end: calc(min(92vw, 390px) + 10px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="escenario" aria-label="Lienzo de la simulación">
+    <canvas id="lienzo" role="img" aria-label="Simulación de una bandada de boids"></canvas>
+    <div class="hud" id="hud" aria-live="off" title="Indicadores en vivo">
+      <span><span class="hud-k">φ</span> <span id="hud-phi">0,00</span></span>
+      <span><span class="hud-k">N</span> <span id="hud-n">0</span></span>
+      <span><span class="hud-k">grupos</span> <span id="hud-grupos">0</span></span>
+      <span><span class="hud-k">FPS</span> <span id="hud-fps">0</span></span>
+      <span><span class="hud-k">pasos</span> <span id="hud-pasos">0</span></span>
+      <span id="hud-estado" class="badge" hidden>Pausado</span>
+    </div>
+    <div class="barra">
+      <button id="btnPausa" type="button" title="Pausar o reanudar la simulación (tecla Espacio)">Pausar</button>
+      <button id="btnPaso" type="button" title="Pausa y avanza un único paso de simulación (tecla N)">Paso</button>
+      <button id="btnReiniciar" type="button" title="Volver a sortear posiciones y velocidades conservando los parámetros (tecla R)">Reiniciar</button>
+      <label class="sel" for="presets">Preset
+        <select id="presets" title="Configuraciones de ejemplo. Aplicar un preset reemplaza los parámetros y reinicia las posiciones."></select>
+      </label>
+    </div>
+    <button id="btnPanel" type="button" class="solo-movil" aria-expanded="false" aria-controls="panel">Parámetros</button>
+  </section>
+
+  <aside id="panel" class="panel" aria-label="Panel de parámetros">
+    <header class="panel-cab">
+      <h1>Simulador de boids</h1>
+      <p>Bandada emergente a partir de reglas locales. Sin líder, sin centro de masa global. Movés un control y la dinámica cambia en vivo.</p>
+    </header>
+
+    <details id="d-io">
+      <summary>Exportar / Importar parámetros</summary>
+      <div class="sec">
+        <div class="acciones">
+          <button id="btnCopiar" type="button" title="Copia los parámetros actuales como JSON al portapapeles">Copiar JSON</button>
+          <button id="btnDescargar" type="button" title="Descarga los parámetros actuales como archivo .json">Descargar JSON</button>
+          <button id="btnDefaults" type="button" title="Vuelve todos los parámetros a sus valores iniciales (conserva las posiciones)">Restablecer valores por defecto</button>
+        </div>
+        <label for="txtJson" class="nota">Pegá acá un JSON de parámetros y aplicalo:</label>
+        <textarea id="txtJson" spellcheck="false" aria-label="JSON de parámetros"></textarea>
+        <div class="acciones">
+          <button id="btnAplicarJson" type="button" class="primario" title="Aplica el JSON pegado (los valores fuera de rango se recortan)">Aplicar JSON pegado</button>
+          <label class="nota" for="archivoJson">o importar archivo:</label>
+          <input id="archivoJson" type="file" accept="application/json,.json" aria-label="Importar archivo JSON">
+        </div>
+        <p id="msg" class="msg" role="status"></p>
+      </div>
+    </details>
+
+    <details open id="d-poblacion"><summary>Población y percepción</summary><div class="sec" id="sec-poblacion"></div></details>
+    <details open id="d-reglas"><summary>Reglas de Reynolds</summary><div class="sec" id="sec-reglas"></div></details>
+    <details id="d-dinamica"><summary>Dinámica</summary><div class="sec" id="sec-dinamica"></div></details>
+    <details id="d-informados"><summary>Individuos informados (líderes)</summary><div class="sec" id="sec-informados"></div></details>
+    <details id="d-perturbaciones"><summary>Perturbaciones (ruido / depredador)</summary><div class="sec" id="sec-perturbaciones"></div></details>
+    <details id="d-entorno"><summary>Entorno y visualización</summary><div class="sec" id="sec-entorno"></div></details>
+
+    <details open id="d-metricas">
+      <summary>Métricas</summary>
+      <div class="metricas">
+        <dl>
+          <dt title="Parámetro de orden (polarización): |Σ v̂ᵢ| / N. Vale 1 si todas las aves vuelan en la misma dirección y ≈0 si las direcciones son aleatorias.">Parámetro de orden φ</dt><dd id="m-phi">0,000</dd>
+          <dt title="Promedio, sobre las aves que tienen al menos un vecino dentro de R, de la distancia a su vecino más cercano (píxeles).">Distancia media al vecino más cercano</dt><dd id="m-dist">—</dd>
+          <dt title="Componentes conexas del grafo de vecindad (arista entre dos aves si están a menos de R). Se recalcula cada 10 pasos.">Número de grupos</dt><dd id="m-grupos">0</dd>
+          <dt title="Promedio de vecinos efectivamente usados por ave (después del filtro de campo de visión y, en modo topológico, del límite k).">Vecinos promedio por ave</dt><dd id="m-vec">0,0</dd>
+          <dt title="Cuadros por segundo del navegador (promedio móvil).">FPS</dt><dd id="m-fps">0</dd>
+          <dt>N</dt><dd id="m-n">0</dd>
+          <dt title="Pasos de simulación desde el último reinicio.">Tiempo de simulación (pasos)</dt><dd id="m-pasos">0</dd>
+        </dl>
+        <canvas id="spark" role="img" aria-label="Serie temporal del parámetro de orden φ (últimas 300 muestras)" title="Serie temporal de φ: últimas 300 muestras, eje vertical de 0 a 1"></canvas>
+        <p class="nota">Serie temporal de φ (últimas 300 muestras, de 0 a 1).</p>
+      </div>
+    </details>
+
+    <details id="d-acerca">
+      <summary>Acerca del modelo</summary>
+      <div class="acerca">
+        <h3>Boids: tres reglas locales, cero líderes</h3>
+        <p>El modelo canónico es <strong>Boids</strong> (Reynolds, 1987), un modelo <em>distribuido</em>: cada ave aplica tres reglas de dirección usando sólo a los vecinos que percibe. <strong>Separación</strong>: alejarse de quienes están demasiado cerca (peso ∝ 1/d). <strong>Alineación</strong>: igualar la velocidad media de los vecinos. <strong>Cohesión</strong>: moverse hacia el centro de masa de los vecinos. No existe un coordinador ni una vista global: la bandada es un patrón <strong>emergente</strong> de interacciones locales.</p>
+        <p>Punto clave: la cohesión usa el <strong>centro de masa local</strong> de los vecinos percibidos por cada ave, no el centro de masa de toda la bandada. Por eso pueden convivir varios grupos con rumbos distintos y fusionarse o dividirse.</p>
+
+        <h3>Vecindad métrica vs. topológica</h3>
+        <p>Reynolds define a los vecinos por distancia (radio R) y ángulo (campo de visión medido desde la dirección de vuelo). Ballerini et al. (2008) reconstruyeron en 3D bandadas reales de estorninos y hallaron que cada ave interactúa con un número fijo de vecinos más cercanos (≈6–7) independientemente de la distancia: interacción <strong>topológica</strong>, que mantiene la cohesión aun cuando la densidad cambia. Activá el modo topológico y comparalo. En este simulador la separación (evitar colisiones) se mantiene métrica en ambos modos.</p>
+
+        <h3>«Líderes» = individuos informados</h3>
+        <p>Couzin, Krause, Franks y Levin (2005) mostraron que no hace falta un líder explícito: basta una pequeña fracción <em>p</em> de individuos <strong>informados</strong> con una dirección preferida <em>g</em>, que ponderan esa preferencia con un peso <em>ω</em> frente a las interacciones sociales, para guiar a todo el grupo. El resto es «naif»: no sabe quién está informado ni sigue a nadie en particular. Es la versión rigurosa de la intuición del «ave que guía».</p>
+
+        <h3>Ruido y transición orden–desorden</h3>
+        <p>Vicsek et al. (1995) agregaron una perturbación angular η al rumbo de cada partícula. Al aumentar η, el parámetro de orden φ (polarización) cae de ≈1 (movimiento colectivo ordenado) a ≈0 (desorden): una transición de fase análoga a las de la física estadística. Probá el preset «Fase desordenada» y bajá η de a poco mirando la serie de φ.</p>
+
+        <h3>Ecuación de actualización (pseudocódigo)</h3>
+<pre>para cada ave i (con posición p_i y velocidad v_i):
+  cand = { j : |p_j − p_i| &lt; R  y  ángulo(v_i, p_j − p_i) &lt; FOV/2 }
+  vecinos = cand                         (métrico)
+          = los k más cercanos de cand   (topológico)
+  sep = Σ −(p_j − p_i)/|p_j − p_i|²      para j con |p_j − p_i| &lt; R_sep
+  ali = promedio(v_j)                    sobre vecinos
+  coh = promedio(p_j) − p_i              centro de masa LOCAL
+  a_i = w_s·steer(sep) + w_a·steer(ali) + w_c·steer(coh)
+        [+ ω·steer(g)  si i está informada]
+        [+ w_m·steer(p_i − p_depredador) si |p_i − p_depredador| &lt; R_miedo]
+  con  steer(d) = clamp( normalizar(d)·v_max − v_i , F_max )
+
+luego, para todas las aves a la vez:
+  v_i ← v_i + a_i·dt
+  θ_i ← θ_i + U(−η/2, η/2)               ruido angular
+  |v_i| ← clamp(|v_i|, v_min, v_max)
+  p_i ← p_i + v_i·dt                     (envolvente o rebote)
+
+métricas: φ = |Σ v̂_i| / N ; grupos = componentes conexas del grafo de vecindad</pre>
+
+        <h3>Implementación</h3>
+        <p>Búsqueda de vecinos con una grilla espacial uniforme (hash) de celda ≥ R: cada ave sólo examina las 9 celdas circundantes, lo que da costo O(N) por paso y permite miles de aves en tiempo real. Posiciones y velocidades viven en arreglos tipados; la actualización es sincrónica (primero se calculan todas las aceleraciones, luego se integran).</p>
+
+        <h3>Atajos de teclado</h3>
+        <p><kbd>Espacio</kbd> pausar/reanudar · <kbd>N</kbd> un paso · <kbd>R</kbd> reiniciar · <kbd>P</kbd> mostrar/ocultar panel (pantallas chicas). Clic en el lienzo en modo Depredador: colocar o quitar un depredador fijo.</p>
+
+        <h3>Referencias</h3>
+        <ul>
+          <li>Reynolds, C. W. (1987). Flocks, Herds, and Schools: A Distributed Behavioral Model. <em>SIGGRAPH '87 / Computer Graphics</em>, 21(4), 25–34.</li>
+          <li>Ballerini, M. et al. (2008). Interaction ruling animal collective behavior depends on topological rather than metric distance. <em>PNAS</em>, 105(4), 1232–1237.</li>
+          <li>Couzin, I. D., Krause, J., Franks, N. R. &amp; Levin, S. A. (2005). Effective leadership and decision-making in animal groups on the move. <em>Nature</em>, 433, 513–516.</li>
+          <li>Vicsek, T. et al. (1995). Novel type of phase transition in a system of self-driven particles. <em>Phys. Rev. Lett.</em>, 75, 1226–1229.</li>
+        </ul>
+      </div>
+    </details>
+  </aside>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   Simulador de boids — núcleo de simulación (independiente del DOM)
+   ===================================================================== */
+const TAU = Math.PI * 2;
+
+class Boids {
+  constructor(maxN) {
+    this.maxN = maxN;
+    this.n = 0;
+    // Estado de las aves (arreglos tipados, sin asignaciones en el bucle caliente)
+    this.px = new Float32Array(maxN);
+    this.py = new Float32Array(maxN);
+    this.vx = new Float32Array(maxN);
+    this.vy = new Float32Array(maxN);
+    this.ax = new Float32Array(maxN);
+    this.ay = new Float32Array(maxN);
+    this.informado = new Uint8Array(maxN);
+    // Grilla espacial (ordenamiento por conteo)
+    this.cellIdx = new Int32Array(maxN);
+    this.cellEntries = new Int32Array(maxN);
+    this.cols = 1; this.rows = 1;
+    this.cellStart = new Int32Array(2);
+    this.cellFill = new Int32Array(1);
+    // Auxiliares
+    this.parent = new Int32Array(maxN);          // union-find para grupos
+    this.candIdx = new Int32Array(maxN);         // candidatos (modo topológico)
+    this.candD2 = new Float32Array(maxN);
+    this.focalVecinos = new Int32Array(maxN);    // vecinos del ave focal (visualización)
+    this.focalCount = 0;
+    this.focal = -1;
+    // Mundo e interacción externa
+    this.w = 800; this.h = 600;
+    this.cursorX = 0; this.cursorY = 0; this.cursorActivo = false;
+    this.marcadorX = 0; this.marcadorY = 0; this.marcadorActivo = false;
+    // Métricas
+    this.pasos = 0;
+    this.phi = 0;
+    this.distMediaVecino = 0;
+    this.vecinosPromedio = 0;
+    this.grupos = 0;
+    // Registros temporales para _steer
+    this._vxi = 0; this._vyi = 0; this._ax = 0; this._ay = 0;
+    this.p = null;
+    this.vmin = 1; this.vmax = 3; this.fmax = 0.1; this.fmax2 = 0.01;
+  }
+
+  /* Fija los parámetros y recalcula magnitudes derivadas. */
+  setParams(p) {
+    this.p = p;
+    const R = Math.max(1, p.radioPercepcion);
+    this.R = R; this.R2 = R * R;
+    const rs = Math.max(0, p.radioSeparacion);
+    this.sep2 = rs * rs;
+    const fov = Math.min(360, Math.max(1, p.campoVision));
+    this.fovActivo = fov < 359.9;
+    const ch = Math.cos(fov * 0.5 * Math.PI / 180);
+    this.cosHalf = ch; this.cosHalf2 = ch * ch; this.cosHalfPos = ch > 0;
+    this.topo = p.vecindad === 'topologico';
+    this.k = Math.max(1, Math.min(15, Math.round(p.k)));
+    this.toro = p.bordes === 'toroidal';
+    this.vmax = Math.max(0.05, p.velMax);
+    this.vmin = Math.max(0, Math.min(p.velMin, this.vmax));
+    this.vmax2 = this.vmax * this.vmax;
+    this.vmin2 = this.vmin * this.vmin;
+    this.fmax = Math.max(0.001, p.fuerzaMax);
+    this.fmax2 = this.fmax * this.fmax;
+    this.dt = Math.max(0.01, p.dt);
+    this.eta = Math.max(0, p.ruido);
+    this.wSep = p.pesoSeparacion; this.wAli = p.pesoAlineacion; this.wCoh = p.pesoCohesion;
+    this.wInf = p.pesoInformados;
+    const g = p.anguloPreferido * Math.PI / 180;
+    this.gx = Math.cos(g); this.gy = Math.sin(g);
+    this.seguirCursor = !!p.informadosCursor;
+    this.modoMouse = p.modoMouse;
+    this.miedo2 = p.radioMiedo * p.radioMiedo;
+    this.wMiedo = p.pesoMiedo; this.wAtr = p.pesoAtraccion;
+    this.margen = Math.max(1, p.margen);
+    this.focal = p.mostrarPercepcion ? 0 : -1;
+    this.ajustarN(Math.round(p.N));
+    this.marcarInformados();
+    this.reconstruirGrilla();
+  }
+
+  setWorld(w, h) {
+    this.w = Math.max(10, w); this.h = Math.max(10, h);
+    // Reubicar aves que quedaron fuera al cambiar el tamaño
+    for (let i = 0; i < this.n; i++) {
+      if (!(this.px[i] >= 0 && this.px[i] < this.w)) this.px[i] = ((this.px[i] % this.w) + this.w) % this.w;
+      if (!(this.py[i] >= 0 && this.py[i] < this.h)) this.py[i] = ((this.py[i] % this.h) + this.h) % this.h;
+    }
+    this.reconstruirGrilla();
+  }
+
+  reconstruirGrilla() {
+    const cell = Math.max(this.R || 10, Math.sqrt(this.sep2 || 0), 10);
+    const cols = Math.max(1, Math.floor(this.w / cell));
+    const rows = Math.max(1, Math.floor(this.h / cell));
+    if (cols !== this.cols || rows !== this.rows || this.cellStart.length !== cols * rows + 1) {
+      this.cols = cols; this.rows = rows;
+      this.cellStart = new Int32Array(cols * rows + 1);
+      this.cellFill = new Int32Array(cols * rows);
+    }
+  }
+
+  /* Cambia N: las aves nuevas nacen en posiciones aleatorias, las sobrantes se descartan. */
+  ajustarN(nuevoN) {
+    const n = Math.max(0, Math.min(this.maxN, nuevoN));
+    for (let i = this.n; i < n; i++) this._sortear(i);
+    this.n = n;
+  }
+
+  marcarInformados() {
+    const cant = Math.round(Math.max(0, Math.min(100, this.p.fraccionInformados)) / 100 * this.n);
+    for (let i = 0; i < this.n; i++) this.informado[i] = i < cant ? 1 : 0;
+  }
+
+  _sortear(i) {
+    this.px[i] = Math.random() * this.w;
+    this.py[i] = Math.random() * this.h;
+    const a = Math.random() * TAU;
+    const s = this.vmin + Math.random() * Math.max(0, this.vmax - this.vmin) || Math.max(this.vmin, 0.5);
+    this.vx[i] = Math.cos(a) * s;
+    this.vy[i] = Math.sin(a) * s;
+    this.ax[i] = 0; this.ay[i] = 0;
+  }
+
+  /* Re-sortea posiciones y velocidades conservando los parámetros. */
+  reiniciar() {
+    for (let i = 0; i < this.n; i++) this._sortear(i);
+    this.pasos = 0; this.phi = 0; this.grupos = 0; this.distMediaVecino = 0; this.vecinosPromedio = 0;
+  }
+
+  /* steer = clamp(normalizar(objetivo)·vmax − v, fmax), acumulado con peso w. */
+  _steer(tx, ty, w) {
+    const m2 = tx * tx + ty * ty;
+    if (m2 < 1e-12 || w === 0) return;
+    const k = this.vmax / Math.sqrt(m2);
+    let sx = tx * k - this._vxi, sy = ty * k - this._vyi;
+    const s2 = sx * sx + sy * sy;
+    if (s2 > this.fmax2) { const f = this.fmax / Math.sqrt(s2); sx *= f; sy *= f; }
+    this._ax += sx * w; this._ay += sy * w;
+  }
+
+  _find(i) {
+    const par = this.parent;
+    while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; }
+    return i;
+  }
+  _union(a, b) {
+    a = this._find(a); b = this._find(b);
+    if (a !== b) this.parent[a] = b;
+  }
+
+  /* Un paso de simulación (dt fijo tomado de los parámetros). */
+  step() {
+    const p = this.p; if (!p) return;
+    const n = this.n; if (n === 0) return;
+    const W = this.w, H = this.h, hw = W * 0.5, hh = H * 0.5;
+    const toro = this.toro, topo = this.topo, k = this.k;
+    const px = this.px, py = this.py, vx = this.vx, vy = this.vy, ax = this.ax, ay = this.ay;
+    const informado = this.informado, candIdx = this.candIdx, candD2 = this.candD2, focalVec = this.focalVecinos;
+    const cols = this.cols, rows = this.rows, cells = cols * rows, cellW = W / cols, cellH = H / rows;
+    const cellStart = this.cellStart, cellFill = this.cellFill, cellIdx = this.cellIdx, entries = this.cellEntries;
+    const R2 = this.R2, sep2 = this.sep2, fovActivo = this.fovActivo, cosHalf2 = this.cosHalf2, cosHalfPos = this.cosHalfPos;
+    const wSep = this.wSep, wAli = this.wAli, wCoh = this.wCoh, wInf = this.wInf;
+    const seguirCursor = this.seguirCursor && this.cursorActivo;
+    const cursorX = this.cursorX, cursorY = this.cursorY;
+    const modoAtraer = this.modoMouse === 'atraer' && this.cursorActivo;
+    const modoDepredador = this.modoMouse === 'depredador';
+    const depCursor = modoDepredador && this.cursorActivo;
+    const depMarcador = modoDepredador && this.marcadorActivo;
+    const marcadorX = this.marcadorX, marcadorY = this.marcadorY, miedo2 = this.miedo2;
+    const margen = this.margen, fb = this.fmax * 4;
+    const focal = this.focal;
+    const doGroups = (this.pasos % 10) === 0;
+
+    /* ---- 1. Grilla espacial: ordenamiento por conteo ---- */
+    cellStart.fill(0);
+    for (let i = 0; i < n; i++) {
+      let cx = (px[i] / cellW) | 0; if (cx < 0) cx = 0; else if (cx >= cols) cx = cols - 1;
+      let cy = (py[i] / cellH) | 0; if (cy < 0) cy = 0; else if (cy >= rows) cy = rows - 1;
+      const c = cy * cols + cx;
+      cellIdx[i] = c; cellStart[c + 1]++;
+    }
+    for (let c = 0; c < cells; c++) cellStart[c + 1] += cellStart[c];
+    for (let c = 0; c < cells; c++) cellFill[c] = cellStart[c];
+    for (let i = 0; i < n; i++) entries[cellFill[cellIdx[i]]++] = i;
+
+    if (doGroups) { const par = this.parent; for (let i = 0; i < n; i++) par[i] = i; }
+    this.focalCount = 0;
+    // En modo toroidal con pocas celdas, evitar visitar dos veces la misma celda envuelta
+    const dxTo = toro ? Math.min(1, cols - 2) : 1;
+    const dyTo = toro ? Math.min(1, rows - 2) : 1;
+
+    let sumNear = 0, cntNear = 0, sumVec = 0;
+
+    /* ---- 2. Aceleraciones (todas con las posiciones/velocidades actuales) ---- */
+    for (let i = 0; i < n; i++) {
+      const xi = px[i], yi = py[i], vxi = vx[i], vyi = vy[i];
+      const v2 = vxi * vxi + vyi * vyi;
+      const ci = cellIdx[i]; const cx = ci % cols; const cy = (ci - cx) / cols;
+      let sepX = 0, sepY = 0, aliX = 0, aliY = 0, cohX = 0, cohY = 0, cnt = 0, nSep = 0, nCand = 0;
+      let nearD2 = Infinity;
+
+      for (let oy = -1; oy <= dyTo; oy++) {
+        let cyy = cy + oy;
+        if (toro) { if (cyy < 0) cyy += rows; else if (cyy >= rows) cyy -= rows; }
+        else if (cyy < 0 || cyy >= rows) continue;
+        for (let ox = -1; ox <= dxTo; ox++) {
+          let cxx = cx + ox;
+          if (toro) { if (cxx < 0) cxx += cols; else if (cxx >= cols) cxx -= cols; }
+          else if (cxx < 0 || cxx >= cols) continue;
+          const c = cyy * cols + cxx;
+          const fin = cellStart[c + 1];
+          for (let e = cellStart[c]; e < fin; e++) {
+            const j = entries[e];
+            if (j === i) continue;
+            let dx = px[j] - xi, dy = py[j] - yi;
+            if (toro) {
+              if (dx > hw) dx -= W; else if (dx < -hw) dx += W;
+              if (dy > hh) dy -= H; else if (dy < -hh) dy += H;
+            }
+            const d2 = dx * dx + dy * dy;
+            if (d2 > R2) continue;
+            if (d2 < nearD2) nearD2 = d2;
+            if (doGroups) this._union(i, j);
+            // Campo de visión: ángulo entre v_i y (p_j − p_i) menor que FOV/2 (sin sqrt)
+            if (fovActivo) {
+              const dot = vxi * dx + vyi * dy;
+              const lim = cosHalf2 * v2 * d2;
+              if (cosHalfPos) { if (dot < 0 || dot * dot < lim) continue; }
+              else if (dot < 0 && dot * dot > lim) continue;
+            }
+            // Separación: siempre métrica, peso ∝ 1/d
+            if (d2 < sep2) {
+              if (d2 > 1e-4) { const inv = 1 / d2; sepX -= dx * inv; sepY -= dy * inv; }
+              else { sepX += Math.random() - 0.5; sepY += Math.random() - 0.5; }
+              nSep++;
+            }
+            if (topo) { candIdx[nCand] = j; candD2[nCand] = d2; nCand++; }
+            else {
+              aliX += vx[j]; aliY += vy[j]; cohX += dx; cohY += dy; cnt++;
+              if (i === focal) focalVec[this.focalCount++] = j;
+            }
+          }
+        }
+      }
+
+      // Modo topológico: conservar los k candidatos más cercanos (selección parcial)
+      if (topo && nCand > 0) {
+        const kk = nCand < k ? nCand : k;
+        for (let t = 0; t < kk; t++) {
+          let m = t, md = candD2[t];
+          for (let u = t + 1; u < nCand; u++) { if (candD2[u] < md) { md = candD2[u]; m = u; } }
+          if (m !== t) {
+            const ti = candIdx[t]; candIdx[t] = candIdx[m]; candIdx[m] = ti;
+            candD2[m] = candD2[t]; candD2[t] = md;
+          }
+        }
+        for (let t = 0; t < kk; t++) {
+          const j = candIdx[t];
+          let dx = px[j] - xi, dy = py[j] - yi;
+          if (toro) {
+            if (dx > hw) dx -= W; else if (dx < -hw) dx += W;
+            if (dy > hh) dy -= H; else if (dy < -hh) dy += H;
+          }
+          aliX += vx[j]; aliY += vy[j]; cohX += dx; cohY += dy;
+          if (i === focal) focalVec[this.focalCount++] = j;
+        }
+        cnt = kk;
+      }
+
+      /* ---- Dirección (Reynolds): steer = desired − velocity, acotado por fmax ---- */
+      this._vxi = vxi; this._vyi = vyi; this._ax = 0; this._ay = 0;
+      if (nSep > 0) this._steer(sepX, sepY, wSep);
+      if (cnt > 0) {
+        const inv = 1 / cnt;
+        this._steer(aliX * inv, aliY * inv, wAli);        // alineación: velocidad media local
+        this._steer(cohX * inv, cohY * inv, wCoh);        // cohesión: centro de masa LOCAL
+      }
+      // Individuos informados (Couzin et al. 2005): preferencia direccional con peso ω
+      if (informado[i] === 1 && wInf > 0) {
+        if (seguirCursor) {
+          let dx = cursorX - xi, dy = cursorY - yi;
+          if (toro) { if (dx > hw) dx -= W; else if (dx < -hw) dx += W; if (dy > hh) dy -= H; else if (dy < -hh) dy += H; }
+          this._steer(dx, dy, wInf);
+        } else this._steer(this.gx, this.gy, wInf);
+      }
+      // Cursor como atractor (todas las aves)
+      if (modoAtraer) {
+        let dx = cursorX - xi, dy = cursorY - yi;
+        if (toro) { if (dx > hw) dx -= W; else if (dx < -hw) dx += W; if (dy > hh) dy -= H; else if (dy < -hh) dy += H; }
+        this._steer(dx, dy, this.wAtr);
+      }
+      // Depredador: huir del cursor y/o del marcador fijo
+      if (depCursor) {
+        let dx = xi - cursorX, dy = yi - cursorY;
+        if (toro) { if (dx > hw) dx -= W; else if (dx < -hw) dx += W; if (dy > hh) dy -= H; else if (dy < -hh) dy += H; }
+        if (dx * dx + dy * dy < miedo2) this._steer(dx, dy, this.wMiedo);
+      }
+      if (depMarcador) {
+        let dx = xi - marcadorX, dy = yi - marcadorY;
+        if (toro) { if (dx > hw) dx -= W; else if (dx < -hw) dx += W; if (dy > hh) dy -= H; else if (dy < -hh) dy += H; }
+        if (dx * dx + dy * dy < miedo2) this._steer(dx, dy, this.wMiedo);
+      }
+      // Bordes con rebote suave: empuje hacia adentro creciente con la penetración en el margen
+      if (!toro) {
+        if (xi < margen) this._ax += fb * (1.25 - xi / margen);
+        else if (xi > W - margen) this._ax -= fb * (1.25 - (W - xi) / margen);
+        if (yi < margen) this._ay += fb * (1.25 - yi / margen);
+        else if (yi > H - margen) this._ay -= fb * (1.25 - (H - yi) / margen);
+      }
+      ax[i] = this._ax; ay[i] = this._ay;
+
+      if (nearD2 < Infinity) { sumNear += Math.sqrt(nearD2); cntNear++; }
+      sumVec += cnt;
+    }
+
+    /* ---- 3. Integración sincrónica + ruido + límites de velocidad + bordes ---- */
+    const dt = this.dt, eta = this.eta, vmax = this.vmax, vmin = this.vmin, vmax2 = this.vmax2, vmin2 = this.vmin2;
+    let sx = 0, sy = 0;
+    for (let i = 0; i < n; i++) {
+      let nvx = vx[i] + ax[i] * dt, nvy = vy[i] + ay[i] * dt;
+      if (eta > 0) {  // ruido angular uniforme en [−η/2, η/2] (Vicsek et al. 1995)
+        const a = (Math.random() - 0.5) * eta;
+        const c = Math.cos(a), s = Math.sin(a);
+        const tx = nvx * c - nvy * s; nvy = nvx * s + nvy * c; nvx = tx;
+      }
+      let s2 = nvx * nvx + nvy * nvy;
+      if (!(s2 > 1e-12)) {  // velocidad nula o NaN: rumbo aleatorio
+        const a = Math.random() * TAU, s = Math.max(vmin, 0.001);
+        nvx = Math.cos(a) * s; nvy = Math.sin(a) * s; s2 = s * s;
+      }
+      if (s2 > vmax2) { const f = vmax / Math.sqrt(s2); nvx *= f; nvy *= f; s2 = vmax2; }
+      else if (s2 < vmin2) { const f = vmin / Math.sqrt(s2); nvx *= f; nvy *= f; s2 = vmin2; }
+      let x = px[i] + nvx * dt, y = py[i] + nvy * dt;
+      if (toro) {
+        if (x < 0 || x >= W) x = ((x % W) + W) % W;
+        if (y < 0 || y >= H) y = ((y % H) + H) % H;
+      } else {
+        if (x < 0) { x = 0; if (nvx < 0) nvx = -nvx; } else if (x > W) { x = W; if (nvx > 0) nvx = -nvx; }
+        if (y < 0) { y = 0; if (nvy < 0) nvy = -nvy; } else if (y > H) { y = H; if (nvy > 0) nvy = -nvy; }
+      }
+      vx[i] = nvx; vy[i] = nvy; px[i] = x; py[i] = y;
+      const inv = 1 / Math.sqrt(s2);
+      sx += nvx * inv; sy += nvy * inv;
+    }
+
+    /* ---- 4. Métricas ---- */
+    this.phi = Math.sqrt(sx * sx + sy * sy) / n;
+    this.distMediaVecino = cntNear > 0 ? sumNear / cntNear : 0;
+    this.vecinosPromedio = sumVec / n;
+    if (doGroups) {
+      let g = 0; const par = this.parent;
+      for (let i = 0; i < n; i++) if (par[i] === i) g++;
+      this.grupos = g;
+    }
+    this.pasos++;
+  }
+}
+
+/* =====================================================================
+   Parámetros: valores por defecto, esquema de controles y presets
+   ===================================================================== */
+const DEFAULTS = Object.freeze({
+  N: 400, vecindad: 'metrico', radioPercepcion: 75, campoVision: 270, k: 7,
+  radioSeparacion: 30, pesoSeparacion: 2.0, pesoAlineacion: 1.2, pesoCohesion: 0.8,
+  fuerzaMax: 0.12, velMin: 1.5, velMax: 3.5, dt: 1.0,
+  fraccionInformados: 0, pesoInformados: 0.5, anguloPreferido: 0, informadosCursor: false,
+  ruido: 0, modoMouse: 'ninguno', radioMiedo: 120, pesoMiedo: 3.0, pesoAtraccion: 0.5,
+  bordes: 'toroidal', margen: 60, modoColor: 'rumbo', mostrarPercepcion: false, estelas: false, mostrarGrilla: false
+});
+
+const ESQUEMA = [
+  // --- Población y percepción ---
+  { sec: 'poblacion', tipo: 'rango', key: 'N', label: 'Cantidad de aves (N)', min: 10, max: 2500, step: 10, dec: 0, unidad: '',
+    tip: 'Cantidad de aves. Más aves → mayor densidad y más vecinos por ave (y más costo de cómputo). Las nuevas nacen en posiciones aleatorias.' },
+  { sec: 'poblacion', tipo: 'select', key: 'vecindad', label: 'Tipo de vecindad',
+    opciones: [['metrico', 'Métrico (radio R)'], ['topologico', 'Topológico (k vecinos más cercanos)']],
+    tip: 'Métrico: vecinos dentro del radio R (Reynolds 1987). Topológico: los k vecinos más cercanos (Ballerini et al. 2008), más robusto ante cambios de densidad. Implementación híbrida: se buscan candidatos dentro de R con la grilla espacial y se conservan los k más cercanos. La separación es siempre métrica.' },
+  { sec: 'poblacion', tipo: 'rango', key: 'radioPercepcion', label: 'Radio de percepción (R)', min: 10, max: 200, step: 1, dec: 0, unidad: ' px',
+    tip: 'Radio dentro del cual un ave percibe a otras. Aumentarlo → alineación más global y grupos más grandes; reducirlo → bandadas fragmentadas. También define el tamaño de celda de la grilla espacial (y el radio de búsqueda de candidatos en modo topológico).' },
+  { sec: 'poblacion', tipo: 'rango', key: 'campoVision', label: 'Campo de visión', min: 30, max: 360, step: 5, dec: 0, unidad: '°',
+    tip: 'Ángulo total de visión centrado en la dirección de vuelo. 360° = sin punto ciego; 270° deja un cono ciego de 90° detrás del ave. Reducirlo → las aves ignoran a quienes vienen por detrás.' },
+  { sec: 'poblacion', tipo: 'rango', key: 'k', label: 'k vecinos (modo topológico)', min: 1, max: 15, step: 1, dec: 0, unidad: '',
+    tip: 'Cantidad de vecinos más cercanos considerados en modo topológico. Ballerini et al. (2008) midieron ≈6–7 en estorninos. Sólo se usa si la vecindad es topológica.' },
+  // --- Reglas de Reynolds ---
+  { sec: 'reglas', tipo: 'rango', key: 'radioSeparacion', label: 'Radio de separación', min: 2, max: 100, step: 1, dec: 0, unidad: ' px',
+    tip: 'Distancia por debajo de la cual un ave se aleja de sus vecinas (peso ∝ 1/d). Mayor radio → bandada más esparcida; menor → más compacta, con riesgo de superposición.' },
+  { sec: 'reglas', tipo: 'rango', key: 'pesoSeparacion', label: 'Peso de separación', min: 0, max: 3, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso de la regla de separación. Alto → evita colisiones y dispersa; 0 → las aves se amontonan y superponen.' },
+  { sec: 'reglas', tipo: 'rango', key: 'pesoAlineacion', label: 'Peso de alineación', min: 0, max: 3, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso de la regla de alineación (igualar la velocidad media de los vecinos). Alto → φ sube rápido y el grupo vuela en bloque; 0 → enjambre sin rumbo común.' },
+  { sec: 'reglas', tipo: 'rango', key: 'pesoCohesion', label: 'Peso de cohesión', min: 0, max: 3, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso de la regla de cohesión (dirigirse al centro de masa LOCAL de los vecinos percibidos). Alto → grupos densos; 0 → la bandada se disgrega poco a poco.' },
+  // --- Dinámica ---
+  { sec: 'dinamica', tipo: 'rango', key: 'fuerzaMax', label: 'Fuerza máxima (capacidad de giro)', min: 0.01, max: 1, step: 0.01, dec: 2, unidad: '',
+    tip: 'Magnitud máxima de cada fuerza de dirección por paso (steer = deseado − velocidad, acotado). Alta → reacciones bruscas; baja → trayectorias suaves e inerciales.' },
+  { sec: 'dinamica', tipo: 'rango', key: 'velMin', label: 'Velocidad mínima', min: 0, max: 5, step: 0.1, dec: 1, unidad: ' px/paso',
+    tip: 'Las aves nunca bajan de esta velocidad (como en vuelo real). Si supera la máxima, se usa la máxima.' },
+  { sec: 'dinamica', tipo: 'rango', key: 'velMax', label: 'Velocidad máxima', min: 0.5, max: 10, step: 0.1, dec: 1, unidad: ' px/paso',
+    tip: 'Velocidad tope. Aumentarla → todo ocurre más rápido y los giros se ven más amplios para la misma fuerza máxima.' },
+  { sec: 'dinamica', tipo: 'rango', key: 'dt', label: 'Paso temporal (velocidad de simulación)', min: 0.1, max: 2, step: 0.05, dec: 2, unidad: '',
+    tip: 'Multiplicador del paso de integración. Valores altos aceleran la simulación pero pueden volverla menos estable; bajos la suavizan.' },
+  // --- Individuos informados ---
+  { sec: 'informados', tipo: 'rango', key: 'fraccionInformados', label: 'Fracción de informados (p)', min: 0, max: 100, step: 1, dec: 0, unidad: ' %',
+    tip: 'Porcentaje de aves «informadas» con una dirección preferida (Couzin et al. 2005). Con un 5–10 % suele alcanzar para guiar a toda la bandada; el resto no sabe quién está informado. Se dibujan en naranja.' },
+  { sec: 'informados', tipo: 'rango', key: 'pesoInformados', label: 'Peso de la preferencia (ω)', min: 0, max: 2, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso ω de la dirección preferida frente a las reglas sociales. 0 → la ignoran; alto → la siguen aunque pierdan la bandada.' },
+  { sec: 'informados', tipo: 'rango', key: 'anguloPreferido', label: 'Dirección preferida (g)', min: 0, max: 360, step: 5, dec: 0, unidad: '°',
+    tip: 'Ángulo g de la dirección preferida de las aves informadas: 0° = hacia la derecha, 90° = hacia abajo (sentido horario en pantalla).' },
+  { sec: 'informados', tipo: 'check', key: 'informadosCursor', label: 'Objetivo = cursor (en vez de g)',
+    tip: 'Si está activo, las aves informadas se dirigen hacia la posición del cursor sobre el lienzo en lugar de a la dirección fija g.' },
+  // --- Perturbaciones ---
+  { sec: 'perturbaciones', tipo: 'rango', key: 'ruido', label: 'Ruido angular (η)', min: 0, max: 6.3, step: 0.05, dec: 2, unidad: ' rad',
+    tip: 'Perturbación angular uniforme en [−η/2, η/2] radianes sumada al rumbo en cada paso (Vicsek et al. 1995). 0 → determinista. Al crecer η cae el parámetro de orden φ: transición orden–desorden (con los valores por defecto ocurre alrededor de η ≈ 1–2 rad).' },
+  { sec: 'perturbaciones', tipo: 'select', key: 'modoMouse', label: 'Rol del cursor',
+    opciones: [['ninguno', 'Ninguno'], ['atraer', 'Atraer (objetivo)'], ['depredador', 'Depredador (huir)']],
+    tip: 'Ninguno: el cursor no influye. Atraer: todas las aves se dirigen hacia el cursor. Depredador: las aves dentro del radio de miedo huyen del cursor; un clic coloca o quita un depredador fijo.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'radioMiedo', label: 'Radio de miedo', min: 20, max: 300, step: 5, dec: 0, unidad: ' px',
+    tip: 'Distancia a la que las aves detectan al depredador y empiezan a huir.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'pesoMiedo', label: 'Peso de la huida', min: 0, max: 6, step: 0.1, dec: 1, unidad: '',
+    tip: 'Peso de la huida del depredador; suele ser mayor que el de las reglas sociales para que la bandada se abra al pasar.' },
+  { sec: 'perturbaciones', tipo: 'rango', key: 'pesoAtraccion', label: 'Peso de la atracción', min: 0, max: 2, step: 0.05, dec: 2, unidad: '',
+    tip: 'Peso de la atracción hacia el cursor en modo Atraer.' },
+  // --- Entorno y visualización ---
+  { sec: 'entorno', tipo: 'select', key: 'bordes', label: 'Bordes',
+    opciones: [['toroidal', 'Toroidal (envolvente)'], ['rebote', 'Rebote suave (margen)']],
+    tip: 'Toroidal: el mundo se envuelve (sale por un lado y entra por el otro), sin efectos de borde. Rebote suave: las aves giran al entrar en un margen cerca del borde.' },
+  { sec: 'entorno', tipo: 'rango', key: 'margen', label: 'Margen de giro (rebote)', min: 10, max: 200, step: 5, dec: 0, unidad: ' px',
+    tip: 'Ancho de la franja junto al borde donde actúa el empuje hacia adentro (sólo en modo Rebote suave).' },
+  { sec: 'entorno', tipo: 'select', key: 'modoColor', label: 'Color de las aves',
+    opciones: [['rumbo', 'Por rumbo (tono = ángulo)'], ['velocidad', 'Por velocidad'], ['uniforme', 'Uniforme']],
+    tip: 'Por rumbo: el tono indica la dirección de vuelo (una bandada alineada se ve de un solo color). Por velocidad: azul lento → amarillo rápido. Las aves informadas siempre van en naranja y el depredador en rojo.' },
+  { sec: 'entorno', tipo: 'check', key: 'mostrarPercepcion', label: 'Mostrar percepción de un ave',
+    tip: 'Resalta un ave focal: radio de percepción, cono de visión, radio de separación y líneas hacia sus vecinos actuales.' },
+  { sec: 'entorno', tipo: 'check', key: 'estelas', label: 'Estelas',
+    tip: 'Deja estelas que se desvanecen para ver las trayectorias.' },
+  { sec: 'entorno', tipo: 'check', key: 'mostrarGrilla', label: 'Mostrar grilla espacial',
+    tip: 'Dibuja la grilla uniforme (hash espacial) usada para buscar vecinos en O(N): cada ave sólo mira las 9 celdas que la rodean.' }
+];
+
+const PRESETS = [
+  { id: 'clasica', nombre: 'Bandada clásica (Reynolds)', p: {} },
+  { id: 'estorninos', nombre: 'Estorninos (topológico, k=7)',
+    p: { N: 800, vecindad: 'topologico', k: 7, radioPercepcion: 90, pesoAlineacion: 1.2, pesoCohesion: 0.9, pesoSeparacion: 1.6, velMax: 3.8, velMin: 2.0 } },
+  { id: 'enjambre', nombre: 'Enjambre difuso (alineación baja)',
+    p: { N: 500, pesoAlineacion: 0.1, pesoCohesion: 1.2, pesoSeparacion: 1.3, ruido: 0.8, radioPercepcion: 70 } },
+  { id: 'migracion', nombre: 'Migración guiada (informados 10 %)',
+    p: { N: 500, fraccionInformados: 10, pesoInformados: 0.6, anguloPreferido: 0, ruido: 0.2 } },
+  { id: 'desorden', nombre: 'Fase desordenada (ruido alto)',
+    p: { N: 600, ruido: 3.0 } },
+  { id: 'escuela', nombre: 'Escuela compacta',
+    p: { N: 500, pesoCohesion: 1.0, radioSeparacion: 20, pesoSeparacion: 2.5, pesoAlineacion: 1.3, radioPercepcion: 55, velMax: 2.4, velMin: 1.5, fuerzaMax: 0.15, bordes: 'rebote', margen: 80 } }
+];
+
+/* Valida y recorta un objeto de parámetros arbitrario (importación); parte de `base` (estado actual). */
+function sanear(obj, base) {
+  const out = Object.assign({}, DEFAULTS, base || {});
+  let aplicados = 0;
+  if (!obj || typeof obj !== 'object') return { estado: out, aplicados };
+  for (const def of ESQUEMA) {
+    if (!(def.key in obj)) continue;
+    const v = obj[def.key];
+    if (def.tipo === 'rango') {
+      const num = Number(v);
+      if (!Number.isFinite(num)) continue;
+      out[def.key] = Math.min(def.max, Math.max(def.min, num)); aplicados++;
+    } else if (def.tipo === 'select') {
+      if (def.opciones.some(o => o[0] === v)) { out[def.key] = v; aplicados++; }
+    } else if (def.tipo === 'check') {
+      out[def.key] = !!v; aplicados++;
+    }
+  }
+  return { estado: out, aplicados };
+}
+
+/* =====================================================================
+   Interfaz: enlace de controles, render y bucle de animación
+   ===================================================================== */
+const formatos = {};
+function fmt(v, dec) {
+  if (!formatos[dec]) formatos[dec] = new Intl.NumberFormat('es-AR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  return formatos[dec].format(v);
+}
+
+function iniciar() {
+  const $ = id => document.getElementById(id);
+  const estado = Object.assign({}, DEFAULTS);
+  const sim = new Boids(2500);
+  const lienzo = $('lienzo');
+  const ctx = lienzo.getContext('2d');
+  const spark = $('spark');
+  const sctx = spark.getContext('2d');
+  const controles = {};
+  let pausado = false;
+  let W = 800, H = 600, dpr = 1;
+  let fps = 0, ultimoT = 0, cuadro = 0;
+  // Historia de φ para el sparkline
+  const HIST = 300;
+  const hist = new Float32Array(HIST);
+  let histLen = 0, histPos = 0;
+
+  /* ---- Construcción de controles a partir del esquema ---- */
+  for (const def of ESQUEMA) {
+    const cont = $('sec-' + def.sec);
+    const id = 'ctl-' + def.key;
+    let wrap, input, output = null;
+    if (def.tipo === 'rango') {
+      wrap = document.createElement('div'); wrap.className = 'ctl';
+      const label = document.createElement('label'); label.htmlFor = id; label.textContent = def.label;
+      output = document.createElement('output'); output.htmlFor = id;
+      input = document.createElement('input'); input.type = 'range'; input.id = id;
+      input.min = String(def.min); input.max = String(def.max); input.step = String(def.step);
+      wrap.appendChild(label); wrap.appendChild(output); wrap.appendChild(input);
+    } else if (def.tipo === 'select') {
+      wrap = document.createElement('div'); wrap.className = 'ctl';
+      const label = document.createElement('label'); label.htmlFor = id; label.textContent = def.label;
+      input = document.createElement('select'); input.id = id;
+      for (const [val, txt] of def.opciones) {
+        const o = document.createElement('option'); o.value = val; o.textContent = txt; input.appendChild(o);
+      }
+      wrap.appendChild(label); wrap.appendChild(input);
+    } else {
+      wrap = document.createElement('label'); wrap.className = 'check'; wrap.htmlFor = id;
+      input = document.createElement('input'); input.type = 'checkbox'; input.id = id;
+      const span = document.createElement('span'); span.textContent = def.label;
+      wrap.appendChild(input); wrap.appendChild(span);
+    }
+    wrap.title = def.tip; input.title = def.tip;
+    cont.appendChild(wrap);
+    controles[def.key] = { def, input, output };
+    input.addEventListener(def.tipo === 'rango' ? 'input' : 'change', () => {
+      if (def.tipo === 'rango') estado[def.key] = Number(input.value);
+      else if (def.tipo === 'select') estado[def.key] = input.value;
+      else estado[def.key] = input.checked;
+      actualizarSalida(def.key);
+      aplicarEstado();
+      if (def.key === 'estelas' || def.key === 'bordes') limpiarLienzo();
+    });
+  }
+
+  function actualizarSalida(key) {
+    const c = controles[key];
+    if (c.def.tipo === 'rango' && c.output) c.output.textContent = fmt(estado[key], c.def.dec) + c.def.unidad;
+  }
+
+  function refrescarUI() {
+    for (const def of ESQUEMA) {
+      const c = controles[def.key];
+      if (def.tipo === 'rango') c.input.value = String(estado[def.key]);
+      else if (def.tipo === 'select') c.input.value = estado[def.key];
+      else c.input.checked = !!estado[def.key];
+      actualizarSalida(def.key);
+    }
+  }
+
+  function aplicarEstado() {
+    sim.setParams(estado);
+    if (estado.modoMouse !== 'depredador') sim.marcadorActivo = false;
+  }
+
+  function limpiarLienzo() {
+    ctx.fillStyle = '#0b0f17';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function mensaje(txt, esError) {
+    const m = $('msg');
+    m.textContent = txt;
+    m.className = 'msg' + (esError ? ' error' : '');
+    if (txt) setTimeout(() => { if (m.textContent === txt) m.textContent = ''; }, 5000);
+  }
+
+  /* ---- Presets ---- */
+  const selPresets = $('presets');
+  {
+    const o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Elegí un preset…'; selPresets.appendChild(o0);
+    for (const pr of PRESETS) {
+      const o = document.createElement('option'); o.value = pr.id; o.textContent = pr.nombre; selPresets.appendChild(o);
+    }
+  }
+  selPresets.addEventListener('change', () => {
+    const pr = PRESETS.find(x => x.id === selPresets.value);
+    if (!pr) return;
+    Object.assign(estado, DEFAULTS, pr.p);
+    refrescarUI(); aplicarEstado(); reiniciarSim();
+    mensaje('Preset aplicado: ' + pr.nombre, false);
+  });
+
+  /* ---- Botones ---- */
+  const btnPausa = $('btnPausa');
+  function setPausa(v) {
+    pausado = v;
+    btnPausa.textContent = pausado ? 'Reanudar' : 'Pausar';
+    btnPausa.setAttribute('aria-pressed', pausado ? 'true' : 'false');
+    $('hud-estado').hidden = !pausado;
+  }
+  btnPausa.addEventListener('click', () => setPausa(!pausado));
+  $('btnPaso').addEventListener('click', () => { setPausa(true); sim.step(); registrarPhi(); dibujar(); actualizarMetricas(); });
+  function reiniciarSim() {
+    sim.reiniciar(); histLen = 0; histPos = 0; limpiarLienzo(); dibujar(); actualizarMetricas();
+  }
+  $('btnReiniciar').addEventListener('click', reiniciarSim);
+  $('btnDefaults').addEventListener('click', () => {
+    Object.assign(estado, DEFAULTS); selPresets.value = ''; refrescarUI(); aplicarEstado(); limpiarLienzo();
+    mensaje('Valores por defecto restablecidos.', false);
+  });
+
+  /* ---- Exportar / importar JSON ---- */
+  function jsonActual() { return JSON.stringify(estado, null, 2); }
+  $('btnCopiar').addEventListener('click', () => {
+    const txt = jsonActual();
+    $('txtJson').value = txt;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(
+        () => mensaje('Parámetros copiados al portapapeles.', false),
+        () => mensaje('No se pudo acceder al portapapeles; el JSON quedó en el cuadro de texto.', true));
+    } else {
+      mensaje('Portapapeles no disponible; el JSON quedó en el cuadro de texto.', true);
+    }
+  });
+  $('btnDescargar').addEventListener('click', () => {
+    const blob = new Blob([jsonActual()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'parametros_boids.json';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    mensaje('Descarga iniciada: parametros_boids.json', false);
+  });
+  function importarTexto(txt) {
+    let obj;
+    try { obj = JSON.parse(txt); }
+    catch (e) { mensaje('JSON inválido: ' + e.message, true); return; }
+    const r = sanear(obj, estado);
+    if (r.aplicados === 0) { mensaje('El JSON no contiene parámetros reconocidos.', true); return; }
+    Object.assign(estado, r.estado); selPresets.value = '';
+    refrescarUI(); aplicarEstado(); limpiarLienzo();
+    mensaje('Se aplicaron ' + r.aplicados + ' parámetros.', false);
+  }
+  $('btnAplicarJson').addEventListener('click', () => importarTexto($('txtJson').value));
+  $('archivoJson').addEventListener('change', (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const lector = new FileReader();
+    lector.addEventListener('load', () => { $('txtJson').value = String(lector.result); importarTexto(String(lector.result)); });
+    lector.addEventListener('error', () => mensaje('No se pudo leer el archivo.', true));
+    lector.readAsText(f);
+    ev.target.value = '';
+  });
+
+  /* ---- Panel plegable en pantallas chicas ---- */
+  const btnPanel = $('btnPanel');
+  function togglePanel(force) {
+    const abierto = typeof force === 'boolean' ? force : !document.body.classList.contains('panel-abierto');
+    document.body.classList.toggle('panel-abierto', abierto);
+    btnPanel.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+  }
+  btnPanel.addEventListener('click', () => togglePanel());
+
+  /* ---- Teclado ---- */
+  document.addEventListener('keydown', (ev) => {
+    const t = ev.target;
+    const tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'select' || tag === 'textarea' || tag === 'button' || tag === 'summary') return;
+    if (ev.key === ' ') { ev.preventDefault(); setPausa(!pausado); }
+    else if (ev.key === 'n' || ev.key === 'N') { setPausa(true); sim.step(); registrarPhi(); dibujar(); actualizarMetricas(); }
+    else if (ev.key === 'r' || ev.key === 'R') reiniciarSim();
+    else if (ev.key === 'p' || ev.key === 'P') togglePanel();
+  });
+
+  /* ---- Puntero sobre el lienzo ---- */
+  function posPuntero(ev) {
+    const r = lienzo.getBoundingClientRect();
+    return [ev.clientX - r.left, ev.clientY - r.top];
+  }
+  lienzo.addEventListener('pointermove', (ev) => {
+    const [x, y] = posPuntero(ev);
+    sim.cursorX = x; sim.cursorY = y; sim.cursorActivo = true;
+  });
+  lienzo.addEventListener('pointerleave', () => { sim.cursorActivo = false; });
+  lienzo.addEventListener('pointerdown', (ev) => {
+    const [x, y] = posPuntero(ev);
+    sim.cursorX = x; sim.cursorY = y; sim.cursorActivo = true;
+    if (estado.modoMouse !== 'depredador') {
+      mensaje('Para colocar un depredador fijo, elegí «Depredador (huir)» como rol del cursor.', true);
+      return;
+    }
+    if (sim.marcadorActivo && Math.hypot(sim.marcadorX - x, sim.marcadorY - y) < 24) {
+      sim.marcadorActivo = false; mensaje('Depredador fijo quitado.', false);
+    } else {
+      sim.marcadorX = x; sim.marcadorY = y; sim.marcadorActivo = true; mensaje('Depredador fijo colocado.', false);
+    }
+  });
+
+  /* ---- Tamaño y alta densidad de píxeles ----
+     El tamaño del escenario está determinado únicamente por el viewport (grilla con fila y
+     columnas fijas, lienzo posicionado en absoluto). Por eso no hace falta un ResizeObserver:
+     el bitmap se sincroniza con el tamaño CSS al inicio de cada cuadro (comparación barata,
+     sin trabajo si nada cambió) y ante el evento resize de la ventana. Al no observar el
+     contenedor, es imposible que el propio ajuste del canvas realimente a un observador. */
+  function redimensionar() {
+    const esc = lienzo.parentElement;
+    const w = Math.max(50, esc.clientWidth || 800);
+    const h = Math.max(50, esc.clientHeight || 600);
+    const nuevoDpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+    const sw = Math.max(50, spark.clientWidth || 300), sh = 64;
+    const lw = Math.round(w * nuevoDpr), lh = Math.round(h * nuevoDpr);
+    const spw = Math.round(sw * nuevoDpr), sph = Math.round(sh * nuevoDpr);
+    const lienzoIgual = w === W && h === H && nuevoDpr === dpr && lienzo.width === lw && lienzo.height === lh;
+    const sparkIgual = nuevoDpr === dpr && spark.width === spw && spark.height === sph;
+    if (lienzoIgual && sparkIgual) return;
+    dpr = nuevoDpr;
+    if (!lienzoIgual) {
+      W = w; H = h;
+      lienzo.width = lw; lienzo.height = lh;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      sim.setWorld(w, h);
+      limpiarLienzo();
+    }
+    if (!sparkIgual) {
+      spark.width = spw; spark.height = sph;
+      sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      spark._w = sw; spark._h = sh;
+    }
+  }
+  let resizePendiente = 0;
+  function solicitarRedimension() {
+    if (resizePendiente) return;
+    resizePendiente = requestAnimationFrame(() => {
+      resizePendiente = 0;
+      redimensionar();
+    });
+  }
+  window.addEventListener('resize', solicitarRedimension, { passive: true });
+
+  /* ---- Render ---- */
+  const NB = 36;
+  const paletaRumbo = [], paletaVel = [];
+  for (let i = 0; i < NB; i++) {
+    paletaRumbo.push('hsl(' + (i * 360 / NB) + ' 80% 62%)');
+    const t = i / (NB - 1);
+    paletaVel.push('hsl(' + (215 - 160 * t) + ' 85% ' + (55 + 10 * t) + '%)');
+  }
+  const COLOR_UNIFORME = '#7fb3ff', COLOR_INFORMADO = '#ff9f43', COLOR_DEPREDADOR = '#ff4d4f', COLOR_FOCAL = '#ffffff';
+  const bucket = new Uint8Array(sim.maxN);
+  const bStart = new Int32Array(NB + 2);
+  const bEntries = new Int32Array(sim.maxN);
+
+  function triangulo(x, y, c, s, L, B, A) {
+    ctx.moveTo(x + c * L, y + s * L);
+    ctx.lineTo(x - c * B - s * A, y - s * B + c * A);
+    ctx.lineTo(x - c * B + s * A, y - s * B - c * A);
+    ctx.closePath();
+  }
+
+  function dibujar() {
+    const n = sim.n, px = sim.px, py = sim.py, vx = sim.vx, vy = sim.vy, inf = sim.informado;
+    if (estado.estelas) { ctx.fillStyle = 'rgba(11,15,23,0.16)'; ctx.fillRect(0, 0, W, H); }
+    else limpiarLienzo();
+
+    if (estado.mostrarGrilla) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath();
+      for (let c = 1; c < sim.cols; c++) { const x = c * W / sim.cols; ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+      for (let r = 1; r < sim.rows; r++) { const y = r * H / sim.rows; ctx.moveTo(0, y); ctx.lineTo(W, y); }
+      ctx.stroke();
+    }
+
+    // Clasificación por color (ordenamiento por conteo) para minimizar cambios de fillStyle
+    const modo = estado.modoColor;
+    const vmin = sim.vmin, vmax = sim.vmax, rangoV = Math.max(1e-6, vmax - vmin);
+    bStart.fill(0);
+    for (let i = 0; i < n; i++) {
+      let b;
+      if (inf[i] === 1) b = NB;
+      else if (modo === 'rumbo') { b = Math.floor((Math.atan2(vy[i], vx[i]) + Math.PI) / TAU * NB); if (b >= NB) b = NB - 1; if (b < 0) b = 0; }
+      else if (modo === 'velocidad') { const s = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]); let t = (s - vmin) / rangoV; if (t < 0) t = 0; else if (t > 1) t = 1; b = Math.round(t * (NB - 1)); }
+      else b = 0;
+      bucket[i] = b; bStart[b + 1]++;
+    }
+    for (let b = 0; b <= NB; b++) bStart[b + 1] += bStart[b];
+    for (let i = 0; i < n; i++) bEntries[bStart[bucket[i]]++] = i;
+    // bStart[b] ahora apunta al final del bucket b; el inicio es bStart[b-1] (o 0)
+    for (let b = 0; b <= NB; b++) {
+      const ini = b === 0 ? 0 : bStart[b - 1], fin = bStart[b];
+      if (fin === ini) continue;
+      const esInf = b === NB;
+      ctx.fillStyle = esInf ? COLOR_INFORMADO : (modo === 'rumbo' ? paletaRumbo[b] : (modo === 'velocidad' ? paletaVel[b] : COLOR_UNIFORME));
+      const L = esInf ? 8 : 6.5, B = esInf ? 5 : 4, A = esInf ? 3.6 : 2.8;
+      ctx.beginPath();
+      for (let e = ini; e < fin; e++) {
+        const i = bEntries[e];
+        const s2 = vx[i] * vx[i] + vy[i] * vy[i];
+        if (s2 > 1e-12) { const invs = 1 / Math.sqrt(s2); triangulo(px[i], py[i], vx[i] * invs, vy[i] * invs, L, B, A); }
+        else triangulo(px[i], py[i], 1, 0, L, B, A);
+      }
+      ctx.fill();
+    }
+
+    // Ave focal: percepción, cono de visión, separación y vecinos
+    if (estado.mostrarPercepcion && n > 0) {
+      const i = 0, x = px[i], y = py[i];
+      const ang = Math.atan2(vy[i], vx[i]);
+      const half = Math.min(360, estado.campoVision) * 0.5 * Math.PI / 180;
+      ctx.save();
+      ctx.fillStyle = 'rgba(76,201,240,0.10)';
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, sim.R, ang - half, ang + half); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(76,201,240,0.7)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x, y, sim.R, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,77,79,0.8)';
+      ctx.beginPath(); ctx.arc(x, y, Math.sqrt(sim.sep2), 0, TAU); ctx.stroke();
+      ctx.strokeStyle = 'rgba(126,231,135,0.75)';
+      ctx.beginPath();
+      const hw = W * 0.5, hh = H * 0.5;
+      for (let e = 0; e < sim.focalCount; e++) {
+        const j = sim.focalVecinos[e];
+        let dx = px[j] - x, dy = py[j] - y;
+        if (sim.toro) { if (dx > hw) dx -= W; else if (dx < -hw) dx += W; if (dy > hh) dy -= H; else if (dy < -hh) dy += H; }
+        ctx.moveTo(x, y); ctx.lineTo(x + dx, y + dy);
+      }
+      ctx.stroke();
+      ctx.fillStyle = COLOR_FOCAL;
+      const s2 = vx[i] * vx[i] + vy[i] * vy[i], invs = s2 > 1e-12 ? 1 / Math.sqrt(s2) : 0;
+      ctx.beginPath(); triangulo(x, y, invs ? vx[i] * invs : 1, invs ? vy[i] * invs : 0, 10, 6, 4.5); ctx.fill();
+      ctx.fillStyle = 'rgba(230,237,243,0.9)'; ctx.font = '12px ' + 'ui-monospace, Consolas, Menlo, monospace';
+      ctx.fillText(sim.focalCount + ' vecinos', x + 12, y - 12);
+      ctx.restore();
+    }
+
+    // Depredador fijo y/o cursor
+    if (estado.modoMouse === 'depredador') {
+      const R = estado.radioMiedo;
+      const marca = (x, y, fijo) => {
+        ctx.strokeStyle = 'rgba(255,77,79,0.35)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.stroke();
+        ctx.fillStyle = COLOR_DEPREDADOR;
+        ctx.beginPath(); ctx.arc(x, y, fijo ? 8 : 6, 0, TAU); ctx.fill();
+        if (fijo) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4); ctx.stroke(); }
+      };
+      if (sim.marcadorActivo) marca(sim.marcadorX, sim.marcadorY, true);
+      if (sim.cursorActivo) marca(sim.cursorX, sim.cursorY, false);
+    } else if ((estado.modoMouse === 'atraer' || (estado.informadosCursor && estado.fraccionInformados > 0)) && sim.cursorActivo) {
+      ctx.strokeStyle = 'rgba(126,231,135,0.9)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sim.cursorX, sim.cursorY, 8, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(sim.cursorX, sim.cursorY, 2, 0, TAU); ctx.stroke();
+    }
+  }
+
+  function registrarPhi() {
+    hist[histPos] = sim.phi; histPos = (histPos + 1) % HIST;
+    if (histLen < HIST) histLen++;
+  }
+
+  function dibujarSpark() {
+    const w = spark._w || 300, h = spark._h || 64;
+    sctx.fillStyle = '#0b0f17'; sctx.fillRect(0, 0, w, h);
+    sctx.strokeStyle = 'rgba(255,255,255,0.10)'; sctx.lineWidth = 1;
+    sctx.beginPath();
+    for (const f of [0.25, 0.5, 0.75]) { const y = h - f * (h - 8) - 4; sctx.moveTo(0, y); sctx.lineTo(w, y); }
+    sctx.stroke();
+    if (histLen < 2) return;
+    sctx.strokeStyle = '#4cc9f0'; sctx.lineWidth = 1.5;
+    sctx.beginPath();
+    const ini = (histPos - histLen + HIST) % HIST;
+    for (let t = 0; t < histLen; t++) {
+      const v = hist[(ini + t) % HIST];
+      const x = t / (HIST - 1) * w, y = h - 4 - v * (h - 8);
+      if (t === 0) sctx.moveTo(x, y); else sctx.lineTo(x, y);
+    }
+    sctx.stroke();
+  }
+
+  function actualizarMetricas() {
+    $('hud-phi').textContent = fmt(sim.phi, 2);
+    $('hud-n').textContent = String(sim.n);
+    $('hud-grupos').textContent = String(sim.grupos);
+    $('hud-fps').textContent = String(Math.round(fps));
+    $('hud-pasos').textContent = String(sim.pasos);
+    $('m-phi').textContent = fmt(sim.phi, 3);
+    $('m-dist').textContent = sim.distMediaVecino > 0 ? fmt(sim.distMediaVecino, 1) + ' px' : '—';
+    $('m-grupos').textContent = String(sim.grupos);
+    $('m-vec').textContent = fmt(sim.vecinosPromedio, 1);
+    $('m-fps').textContent = String(Math.round(fps));
+    $('m-n').textContent = String(sim.n);
+    $('m-pasos').textContent = String(sim.pasos);
+    dibujarSpark();
+  }
+
+  /* ---- Bucle principal (un paso de dt fijo por cuadro) ---- */
+  function cuadroAnim(t) {
+    if (ultimoT > 0) {
+      const d = t - ultimoT;
+      if (d > 0) fps = fps ? fps * 0.9 + (1000 / d) * 0.1 : 1000 / d;
+    }
+    ultimoT = t;
+    redimensionar(); // sincroniza bitmap ↔ tamaño CSS ↔ devicePixelRatio; no hace nada si no cambió
+    if (!pausado) { sim.step(); registrarPhi(); }
+    dibujar();
+    if ((cuadro++ % 5) === 0) actualizarMetricas();
+    requestAnimationFrame(cuadroAnim);
+  }
+
+  /* ---- Arranque ---- */
+  refrescarUI();
+  redimensionar();
+  aplicarEstado();
+  sim.reiniciar();
+  setPausa(false);
+  actualizarMetricas();
+  requestAnimationFrame(cuadroAnim);
+}
+
+iniciar();
+</script>
+</body>
+</html>
