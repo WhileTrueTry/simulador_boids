@@ -1,14 +1,14 @@
-# Simulador de boids 3D — bandadas emergentes
+# Simulador 3D de modelos boids (Bandadas emergentes)
 
 Simulación interactiva de una bandada de aves como sistema complejo: cada ave aplica reglas **locales**
 (separación, alineación, cohesión) y la bandada emerge sin líder ni centro de masa global.
 
-**Probalo en línea:** https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/
+**Probalo en línea:** https://WhileTrueTry.github.io/simulador_boids/
 
 ## Qué incluye
 
-- `index.html` — Simulador 3D (v2.2): WebGL2 con respaldo a Canvas 2D, un único archivo sin dependencias.
-- `simulador_boids_2d.html` — Versión 2D original (v1).
+- `index.html` — Simulador 3D: WebGL2 con respaldo a Canvas 2D, un único archivo sin dependencias.
+- `simulador_boids_2d.html` — Versión 2D original.
 
 Ambos se abren directamente en Edge, Chrome o Firefox; no hace falta servidor ni conexión a internet.
 La única información que se guarda en el navegador es el tema (claro/oscuro).
